@@ -128,5 +128,4 @@ Explicitly excluded: polygon-vs-box queries.
 
 ## Open Questions
 
-* Elasticsearch: include it in Phase 3, or drop it in favor of the systems above if time is short?
-* Does the DuckDB `geography` community extension support the containment and area functions we need? Verify during Phase 2.
+* ~~Does the DuckDB `geography` community extension support the containment and area functions we need?~~ Yes: verified during Phase 1 planning (`s2_contains`, `s2_area`, `s2_bounds_box`, `s2_is_valid_reason`).
