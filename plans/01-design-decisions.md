@@ -8,6 +8,7 @@ This document records the decisions made after reviewing [00-initial-project-des
 * **Correct means spherical.** The expected answer assumes a spherical Earth, with edges following great-circle arcs between vertices. A library with planar semantics is not "buggy," but it does not match this definition. The display should explain that difference.
 * **No custom polygons in the first version.** The first version is a static website with precomputed results. There is no backend at runtime and no deployment yet.
 * **No polygons with holes.** No invalid polygons yet (parking lot).
+* **The time budget in `00` is a budget on Jason's time**, meaning review, decisions and checking results, not on implementation wall-clock time. Plans should therefore minimize review cycles and pin expected values up front, rather than cutting scope to save typing.
 
 ## Input Format and Winding Order
 
