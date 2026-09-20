@@ -76,7 +76,7 @@ Each of these was confirmed by running it during planning. They shape the design
 * **spherely 0.1.1 has no bounding-box function and no standalone validation function.** Its API includes `create_polygon`, `create_point`, `points`, `contains`, `area`, `to_wkt`, `from_wkt`. Validity therefore means "construction didn't raise," and bounding box is N/A.
 * **spherely is vectorized:** `spherely.points(lons, lats)` takes arrays, and `spherely.contains(polygon, points_array)` returns a boolean array.
 * **spherely's Earth radius is `spherely.EARTH_RADIUS_METERS` = 6,371,010 m.** The reference implementation uses the same constant so area comparisons aren't skewed.
-* **`antimeridian.fix_polygon(shapely_polygon, great_circle=True)`** is the common, documented fix for planar consumers. Verified behavior: for a box from 160°E to 160°W it returns a MultiPolygon split at ±180°, with the split latitude computed on the great circle (±21.17° for a box whose corners are at ±20°). For a ring around the North Pole it returns a polygon closed along the +90° latitude line. Signature: `fix_polygon(polygon, *, force_north_pole=False, force_south_pole=False, fix_winding=None, great_circle=True)`. Note that `fix_winding` may reorient rings, which likely defeats the `both_poles` polygon; record whatever it does.
+* **`antimeridian.fix_polygon(shapely_polygon, great_circle=True)`** is the common, documented fix for planar consumers. Verified behavior: for a box from 160°E to 160°W it returns a MultiPolygon split at ±180°, with the split latitude computed on the great circle (±21.17° for a box whose corners are at ±20°). For a ring around the North Pole it returns a polygon closed along the +90° latitude line. Signature: `fix_polygon(polygon, *, force_north_pole=False, force_south_pole=False, fix_winding=None, great_circle=True)`. `fix_winding` reorients rings, which defeats the `both_poles` polygon, so Step 6 pins it explicitly on every variant rather than accepting the default.
 * **Shapely** has vectorized `shapely.contains_xy(geom, lons, lats)` and `shapely.is_valid_reason(geom)` (which returns the string `"Valid Geometry"` when valid).
 * **DuckDB `spatial`** has `ST_GeomFromGeoJSON`, `ST_Contains`, `ST_Point`, `ST_IsValid` and `ST_Extent`, but **no `ST_IsValidReason`**, so validity is a bare boolean. `ST_Extent(geom)` returns a `BOX_2D`, which arrives in Python as a dict with `min_x`, `min_y`, `max_x`, `max_y` — read those keys in Python rather than trying to extract struct fields in SQL. GeoJSON strings can be passed as query parameters.
 * **DuckDB `geography`** (Phase 2, verified available) installs with `INSTALL geography FROM community; LOAD geography;` and provides `s2_contains`, `s2_area`, `s2_bounds_box`, `s2_is_valid`, `s2_is_valid_reason`.
@@ -86,7 +86,7 @@ Each of these was confirmed by running it during planning. They shape the design
 **Python**
 
 * Python 3.13. Full type annotations on everything; pyright runs in strict mode.
-* ruff with `select = ['ALL']` and the ignore list in Appendix A. Note that docstring rules stay **on** for public functions and classes (`D103` is not ignored), using Google-style docstrings. Line length is 100. `ruff format` is enforced in lint.
+* ruff with `select = ['ALL']` and the ignore list in Appendix A. Note that docstring rules stay **on** for public functions and classes (`D103` is not ignored), using Google-style docstrings. Line length is 100. `ruff format` is enforced in lint. Note that `ALL` also turns on `N806`, which objects to the uppercase `R` and `E` in the Appendix E formulas — use lowercase names in code rather than adding ignores.
 * **Every pydantic model field gets `Field(description="...")` unless the field's purpose is obvious from its name.** These descriptions flow into the generated JSON Schema and from there into the TypeScript types, so they document the front end too.
 * All models use `model_config = ConfigDict(strict=True, extra="forbid", frozen=True)`. Frozen models use `tuple[...]` rather than `list[...]`.
 * numpy types appear at function boundaries as `NDArray[np.float64]` and `NDArray[np.bool_]`.
@@ -99,7 +99,7 @@ Each of these was confirmed by running it during planning. They shape the design
 ## Step 1: Scaffolding (small)
 
 1. `uv init --lib --python 3.13` at the repo root, then replace the generated `pyproject.toml` with Appendix A and write `.python-version` containing `3.13`.
-2. Create the package and test layout shown below, with `__init__.py` files, then `uv sync --all-extras --dev`.
+2. Create the package and test layout shown below, with `__init__.py` files, then `uv sync --all-groups` (the same command `recreate_venv.sh` uses).
 3. Write the five scripts from Appendix B, `chmod +x scripts/*.sh`.
 4. `npm create vite@latest frontend -- --template vanilla-ts`, then apply Appendix C (package.json dependencies, tsconfig, ESLint flat config, Prettier config).
 5. Add to `.gitignore`: `node_modules/`, `frontend/dist/`, `.venv/`.
@@ -136,16 +136,16 @@ In `models.py`. All are strict, frozen, `extra="forbid"`, and all non-obvious fi
 * `GeoJsonMultiPolygon`: the same shape one level deeper. `GeoJsonGeometry = GeoJsonPolygon | GeoJsonMultiPolygon`.
 * `BBox`: `west`, `south`, `east`, `north`. Document that `west > east` means the box crosses the antimeridian.
 * `TestPolygon`: `id`, `name`, `description` (the explainer text the UI shows), `polygon`, `expected_valid: bool`.
-* `GridConfig`: `point_count`, `region: BBox | None`, `edge_tolerance_deg`.
+* `GridConfig`: `point_count` (default 5000), `region: BBox | None` (default `None`), `edge_tolerance_deg` (default 0.25). These defaults are the single source of truth; the CLI flags in Step 7 fall back to them.
 * `SystemInfo`: `id`, `name`, `version`, `semantics: Literal["planar", "spherical"]`, `notes`.
 * `Variant`: `id`, `name`, `description`, `tradeoffs: tuple[str, ...]`. Every system has a baseline variant plus its workaround variants.
-* `ReferenceResult` (one per polygon): `inside_indices: tuple[int, ...]`, `skipped_indices: tuple[int, ...]` (too close to an edge), `area_m2`, `bbox`.
+* `ReferenceResult` (one per polygon): `inside_indices: tuple[int, ...]`, `skipped_indices: tuple[int, ...]` (too close to an edge), `area_m2: float`, `bbox: BBox | None`. The bbox is nullable so that dropping `expected_bbox` (Step 3) stays a live option: if it isn't computed, this is `None`, every `bbox_covers_expected` is `None`, and the detail view shows the library's bbox beside "not computed".
 * `CombinationResult`:
   * `polygon_id`, `system_id`, `variant_id`
   * `outcome: Literal["correct", "accepted_but_wrong", "rejected", "error"]`
   * `accepted: bool`, `validation_errors: tuple[str, ...]`, `error_message: str | None`
   * `submitted_geometry: GeoJsonGeometry` — what was actually handed to the library after the workaround; the UI draws this as "the library's view"
-  * `agreement_pct: float`, `false_positive_indices`, `false_negative_indices` (indices into `ResultsFile.points`)
+  * `agreement_pct: float | None`, `false_positive_indices: tuple[int, ...]`, `false_negative_indices: tuple[int, ...]` (indices into `ResultsFile.points`). When the outcome is `rejected` or `error` there is no containment array to compare against, so `agreement_pct` is `None` and both index tuples are empty. The summary matrix renders a `None` percentage as an em dash, never as `0%`.
   * `area_m2: float | None`, `area_error_pct: float | None`
   * `bbox: BBox | None`, `bbox_covers_expected: bool | None`
   * `duration_ms: float`
@@ -173,7 +173,7 @@ Area and bounding box are displayed but do not affect the outcome.
 * `angular_distance_to_edges(ring_xyz, points_xyz)`: the smallest angular distance from each point to the polygon boundary (Appendix E.2), used to skip points near an edge.
 * `spherical_area(ring_xyz) -> float`: exact signed area (Appendix E.3), valid for polygons larger than a hemisphere.
 * `interpolate_great_circle(a, b, max_step_deg)`: slerp, used by densify and by tests.
-* `expected_bbox(ring_xyz) -> BBox` **(cut line)**: latitude extremes include each edge's interior maximum, not just the vertices; if a pole is inside, latitude extends to ±90 and longitude covers −180..180; longitude is the smallest interval covering every edge's span, with `west > east` when it crosses the antimeridian.
+* `expected_bbox(ring_xyz) -> BBox` **(cut line — if cut, `ReferenceResult.bbox` is `None` everywhere and nothing else changes)**: latitude extremes include each edge's interior maximum, not just the vertices; if a pole is inside, latitude extends to ±90 and longitude covers −180..180; longitude is the smallest interval covering every edge's span, with `west > east` when it crosses the antimeridian.
 
 **Tests** (this is the step where thorough tests matter most, since everything else is scored against it):
 
@@ -217,25 +217,33 @@ class SpatialSystem(Protocol):
     ) -> SystemEvaluation: ...
 ```
 
-`systems/__init__.py` exposes `ALL_SYSTEMS: tuple[SpatialSystem, ...]`. `workarounds.py` provides `densify(polygon, max_step_deg=1.0)` (great-circle interpolation, so the added vertices sit on the true edge) and `fix_antimeridian(polygon)` (wrapping `antimeridian.fix_polygon(..., great_circle=True)`, converting to and from Shapely).
+`systems/__init__.py` exposes `ALL_SYSTEMS: tuple[SpatialSystem, ...]`. `workarounds.py` provides `densify(polygon, max_step_deg=1.0)` (great-circle interpolation, so the added vertices sit on the true edge) and `fix_antimeridian(polygon, *, fix_winding: bool)` (wrapping `antimeridian.fix_polygon(..., great_circle=True)`, converting to and from Shapely).
+
+**Pass `fix_winding` explicitly, never by default.** The library's own default rewinds rings, which silently turns `both_poles` from "everything except a box over the eastern Pacific" into the small box itself. That trap is worth demonstrating rather than tripping over. So `antimeridian_fix` and `densified_fix` pass `fix_winding=False`, and `shapely` carries one extra variant, `antimeridian_fix_rewound`, passing `fix_winding=True` to show what the default does. Only `shapely` gets that variant: `duckdb_spatial` runs the same GEOS engine, so repeating it there would add a column without adding a lesson.
 
 | System | Variants | Containment | Validity | Area | BBox |
 |---|---|---|---|---|---|
-| `shapely` (planar, GEOS) | `raw`, `antimeridian_fix`, `densified_fix` (densify 1° then fix) | `shapely.contains_xy(geom, lons, lats)` | `shapely.is_valid_reason` (anything other than `"Valid Geometry"` is an error) | N/A — square degrees aren't comparable | `geom.bounds` |
-| `duckdb_spatial` (planar, GEOS) | the same three | one query per polygon: `SELECT id FROM points WHERE ST_Contains(ST_GeomFromGeoJSON(?), ST_Point(lon, lat))`, with the points table created once per run | `ST_IsValid` (boolean only; no reason function exists) | N/A | `ST_Extent`, read as a dict of `min_x`/`min_y`/`max_x`/`max_y` |
+| `reference` (spherical, ours) | `reference` | the Step 3 implementation, echoed back | always valid | `spherical_area` | `expected_bbox`, when computed |
+| `shapely` (planar, GEOS) | `raw`, `antimeridian_fix`, `antimeridian_fix_rewound`, `densified_fix` (densify 1° then fix) | `shapely.contains_xy(geom, lons, lats)` | `shapely.is_valid_reason` (anything other than `"Valid Geometry"` is an error) | N/A — square degrees aren't comparable | `geom.bounds` |
+| `duckdb_spatial` (planar, GEOS) | `raw`, `antimeridian_fix`, `densified_fix` | one query per polygon: `SELECT id FROM points WHERE ST_Contains(ST_GeomFromGeoJSON(?), ST_Point(lon, lat))`, with the points table created once per run | `ST_IsValid` (boolean only; no reason function exists) | N/A | `ST_Extent`, read as a dict of `min_x`/`min_y`/`max_x`/`max_y` |
 | `spherely` (spherical, S2) | `default` (`oriented=False`), `oriented` (`oriented=True`) | `spherely.contains(poly, spherely.points(lons, lats))` | construction succeeded | `spherely.area` | N/A |
+
+The `reference` row is a **control column, not a system under test**. It scores 100% by construction, which is the point: it shows a reader what a passing row looks like before they read the failures, and it makes the yardstick visible instead of implicit. The runner fills it from the already-computed `ReferenceResult` rather than re-running anything. That makes 10 columns across 6 rows in the summary matrix.
 
 **Variant text for the UI** (`description` plus `tradeoffs`):
 
+* `reference` — "Our own spherical implementation, shown as a control." Tradeoff: "Scores 100% by definition; it is the yardstick, not a contender."
+
 * `raw` — "The polygon as-is, with no preprocessing." Tradeoff: "Nothing to remember, but geodetic cases are wrong."
-* `antimeridian_fix` — "Preprocessed with the `antimeridian` package before insertion." Tradeoffs: "Splits into a MultiPolygon at ±180°, so the stored shape no longer matches the input." / "Closes pole coverage with edges along ±90° latitude, which is an artifact of the projection, not real geometry." / "The caller has to know to do this."
+* `antimeridian_fix` — "Preprocessed with the `antimeridian` package before insertion, with `fix_winding=False` so the ring's orientation is left alone." Tradeoffs: "Splits into a MultiPolygon at ±180°, so the stored shape no longer matches the input." / "Closes pole coverage with edges along ±90° latitude, which is an artifact of the projection, not real geometry." / "The caller has to know to do this."
+* `antimeridian_fix_rewound` — "The same antimeridian fix, left at the package's default `fix_winding=True`." Tradeoffs: "Rewinding reinterprets which side of the ring is the interior, so `both_poles` collapses from 88% of the globe to the 12% box." / "This is the library's default, so it is what you get if you never think about winding."
 * `densified_fix` — "A vertex added every 1° along each great-circle edge, then the antimeridian fix." Tradeoffs: "Straight segments only approximate the curve; error grows with segment length." / "Far more vertices to store and test." / "Still wrong if you forget it."
 * `spherely` `default` — "spherely's default, which ignores winding order." Tradeoffs: "Always assumes the smaller of the two candidate polygons." / "Cannot represent a polygon larger than a hemisphere."
 * `spherely` `oriented` — "Winding order honored (`oriented=True`)." Tradeoff: "The caller must guarantee correct ring orientation; spherely won't check."
 
 **Pinned expectations in tests** (verified during planning, so these are assertions, not guesses):
 
-* Every system and variant is `correct` on `normal`.
+* Every system and variant reaches **at least 99.9% agreement** on `normal`, and every *spherical* variant is exactly `correct`. Do not assert the `correct` category for the planar variants here: `normal`'s parallels bow to 30.38°N and 45.44°N, so a raw planar polygon disagrees with the truth over two slivers totalling roughly 9 deg². At the default 5,000-point grid that is about a one-in-five chance of a single stray point, and it becomes a near-certainty as the grid gets finer. Pin the grid size inside the test so the number is reproducible, and read a stray point as the right answer rather than a bug.
 * `shapely`/`raw` on `antimeridian` is `accepted_but_wrong`: it excludes `(179.9, 0)`, which is inside, and includes `(0, 0)`, which is outside.
 * `spherely`/`default` on `both_poles` is `accepted_but_wrong`: it returns the complement, about 12% of the globe instead of 88%.
 * `spherely`/`oriented` is `correct` on all 6.
@@ -265,16 +273,18 @@ Run `scripts/generate_types.sh` first so `src/generated/results.ts` exists.
   * A short explainer paragraph (what geodetic polygons are, and why a planar library gets them wrong) and a legend.
   * A matrix: polygons as rows, system/variant as columns. Each cell is colored by outcome and shows the agreement percentage. The column header carries a "planar" or "spherical" badge; the row header shows the polygon name with its description as a tooltip.
   * Clicking a cell navigates to the detail view.
-* `map.ts` — one renderer used by both views, parameterized by projection:
+* `map.ts` — one **canvas** renderer used by both views, parameterized by projection. Canvas rather than SVG because the points layer is 5,000 marks per map: with SVG, dragging the globe means rewriting `cx`/`cy` on 5,000 DOM nodes per frame, and every navigation between combinations builds and tears down 10,000 of them. `d3.geoPath(projection, ctx)` draws the same geometry to a canvas context that `d3.geoPath(projection)` writes as an SVG path, so only the points layer and the update mechanics differ, and nothing in this view needs per-point DOM. `d3-selection` stays, for the matrix, legend and side panel.
   * **Orthographic** globe, rotatable by dragging (`d3-drag`), initially centered on the polygon's centroid.
   * **Equirectangular** flat map (`geoEquirectangular`), chosen over Mercator because it shows the poles and because a planar library's straight edges are straight lines in it.
   * Layers, bottom to top: graticule at 30° and land outlines from `world-atlas` 110m (via `topojson-client`'s `feature`); then the true polygon (great-circle edges, drawn natively by d3); then the library's view (`submitted_geometry`); then the grid points.
   * **Winding conversion:** d3-geo treats **clockwise** rings as the interior, the opposite of GeoJSON, so every ring must be reversed before handing it to d3. Without this, pole-containing polygons render inside-out. This is `geo.ts`'s `toD3Winding`.
   * **Planar rendering:** for a planar system, `submitted_geometry` is densified *linearly in lon/lat* before projecting (`geo.ts`'s `densifyPlanar`), so its edges draw straight on the flat map, which is what the library actually believes. Spherical systems' geometry is drawn the same way as the true polygon.
+  * **Canvas mechanics:** size the backing store as `canvas.width = cssWidth * devicePixelRatio` and `ctx.scale(dpr, dpr)`, or everything is soft on a retina display. Redraw the whole scene each frame; don't cache layers in this phase. `d3-drag` binds to a canvas element unchanged.
+  * **Points layer:** project every point once per frame into a reusable `Float64Array`, then draw in five passes grouped by class (correct-inside, correct-outside, false positive, false negative, skipped), setting `fillStyle` once per pass rather than once per point. On the orthographic, cull the back hemisphere first with a dot product of each point's unit vector against the rotation centre — `projection()` does not cull on its own, it mirrors hidden points onto the visible disk. If per-point hover is ever wanted, scan the cached projected coordinates on `mousemove`: 5,000 distance checks is well under a millisecond and needs no quadtree.
 * `detail.ts`:
   * Header: polygon name and description, system, variant, outcome, agreement percentage.
   * The two maps side by side, stacking on narrow screens.
-  * Grid points: correct-inside (filled), correct-outside (small and faint), false positive (a filled marker), false negative (a hollow marker), skipped (hidden behind a toggle). Use a colorblind-safe palette: blue `#0072B2` for correct-inside, grey `#BBBBBB` for correct-outside, vermillion `#D55E00` for false positives, and orange `#E69F00` with a dark outline for false negatives. Outcome colors reuse the same palette.
+  * Grid points: correct-inside (filled), correct-outside (small and faint), false positive (a filled marker), false negative (a hollow marker), skipped (hidden behind a toggle). Use a colorblind-safe palette: blue `#0072B2` for correct-inside, grey `#BBBBBB` for correct-outside, vermillion `#D55E00` for false positives, and orange `#E69F00` with a dark outline for false negatives. Outcome colors reuse the same palette. The palette lives in a TS module rather than in `style.css`, since canvas sets `fillStyle` from it; that module is what the outcome-to-style Vitest test asserts against.
   * Side panel: the variant description and tradeoffs (prominent, since this is the real lesson), validation errors, error message, area (library vs. reference, with percent error, or "not reported"), and bounding box (library vs. expected).
   * Links to the same polygon's other variants for quick comparison **(cut line)**.
 * **Vitest tests** for the pure functions in `geo.ts` and `data.ts`: winding reversal, planar densify, route parsing and formatting, and the outcome-to-style mapping. No DOM tests in this phase.
@@ -296,6 +306,7 @@ Run `scripts/generate_types.sh` first so `src/generated/results.ts` exists.
 ## Risks
 
 * **The reference could be wrong.** Mitigated by the property tests, the hand-checked points, the spherely cross-check, and the verified area fractions in Appendix D. A failure here blocks Step 6.
+* **The generated TypeScript types may come back useless.** Pydantic emits draft 2020-12 `prefixItems` for `tuple[float, float]`; if `json-schema-to-typescript` doesn't understand that, every coordinate becomes `unknown[]` and `strictTypeChecked` will make it painful. Run the generator in Step 1, before any front-end code depends on it. Fallback: hand-write about 60 lines in `src/generated/results.ts` and drop `generate_types.sh`.
 * **Strict typing over numpy and untyped libraries** can eat time. Keep numpy at the boundaries as `NDArray[...]`, and isolate untyped calls in adapters.
 * **The detail view is the largest single item**, and the one most likely to need a look-at-it-and-react cycle. Get the summary view reviewable first, so feedback on the visual style arrives before the detail view is built on top of it.
 
@@ -367,6 +378,11 @@ line-length = 100
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+# Without this, the TC rules move model imports into `if TYPE_CHECKING:` blocks
+# and pydantic can no longer resolve the annotations at import time.
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
 [tool.ruff.lint]
 select = ['ALL']
 ignore = [
@@ -410,9 +426,12 @@ All start with `#!/bin/bash`, `set -euo pipefail`, and a header comment. Written
 * **`test.sh`** — `uv run pytest -vv -rA --log-cli-level=INFO "$@"`, then `(cd frontend && npm test -- --run)`. A `--python-only` flag skips the front end.
 * **`generate_types.sh`** — writes the JSON Schema to a temp file and converts it:
   ```bash
-  uv run python -c 'import json; from spatial_db_analyzer.models import ResultsFile; print(json.dumps(ResultsFile.model_json_schema()))' > /tmp/results-schema.json
-  (cd frontend && npx json-schema-to-typescript /tmp/results-schema.json -o src/generated/results.ts)
+  schema="$(mktemp -t results-schema)"
+  trap 'rm -f "$schema"' EXIT
+  uv run python -c 'import json; from spatial_db_analyzer.models import ResultsFile; print(json.dumps(ResultsFile.model_json_schema()))' > "$schema"
+  (cd frontend && npx json-schema-to-typescript "$schema" -o src/generated/results.ts)
   ```
+  Read the generated file the first time you run this: pydantic emits `prefixItems` for tuples, and if the generator renders those as `unknown[]`, hand-write the types instead (see Risks).
 * **`generate_results.sh`** — `uv run spatial-db-analyzer run --output frontend/public/results.json "$@"`
 
 # Appendix C: Front End Configuration
@@ -458,7 +477,7 @@ Note that `both_poles`, read as a plain list of coordinates, looks like a small 
 Work in 3D unit vectors. For an edge from `a` to `b`, `cross(a, b)` points toward the **left** side of travel, which by our convention is the interior. (Check: `a = (1,0,0)` at (0°, 0°), `b = (0,1,0)` at (90°, 0°), travelling east; `cross(a, b) = (0,0,1)`, the North Pole, which is indeed to the left.)
 
 1. Build a reference point known to be **inside**, just off the midpoint of the first edge:
-   `R = normalize(normalize(v0 + v1) + eps * normalize(cross(v0, v1)))` with `eps = 1e-9`.
+   `R = normalize(normalize(v0 + v1) + eps * normalize(cross(v0, v1)))` with `eps = 1e-6` (about 6 m off the edge). Smaller values such as `1e-9` still work in float64, but they leave only a few digits of sign margin in the crossing test below, and `1e-6` is just as reliably inside for polygons this large.
 2. For each test point `P`, count the polygon edges that cross the minor arc `R → P`. An **even** count means `P` is inside (`R` is inside, and each crossing flips it).
 3. Crossing test for arcs `(a, b)` and `(c, d)`, the S2 "simple crossing" sign test:
    ```
@@ -469,7 +488,7 @@ Work in 3D unit vectors. For an edge from `a` to `b`, `cross(a, b)` points towar
    cbd = -dot(cd, b);  dac = dot(cd, a)
    crossing iff acb * cbd > 0 and acb * dac > 0
    ```
-4. If `P` is nearly antipodal to `R` (angle > π − 1e-6), the minor arc is ill-defined. For those points use a second reference point just **outside** the first edge (`-eps` instead of `+eps`), where an **odd** count means inside.
+4. If `P` is nearly antipodal to `R` (angle > π − `antipodal_tol`, with `antipodal_tol = 1e-9`; keep it a separately named constant so it isn't confused with `eps` above, which serves an unrelated purpose), the minor arc is ill-defined. For those points use a second reference point just **outside** the first edge (`-eps` instead of `+eps`), where an **odd** count means inside.
 
 Vectorize over points × edges with numpy broadcasting; 5,000 points × ~100 edges is trivial.
 

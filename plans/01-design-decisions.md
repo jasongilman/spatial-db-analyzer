@@ -124,6 +124,7 @@ Then comes Phase 2 (the Docker-based systems plus the DuckDB `geography` extensi
 * Custom or user-drawn polygons, and the runtime backend they need
 * AWS deployment (S3 + CloudFront for the static site; cost controls for any backend)
 * NASA CMR spatial library (stretch goal)
+* Conversation transcripts for auditing (asked for in `00`) — Jason is handling this outside these plans.
 
 Explicitly excluded: polygon-vs-box queries.
 
