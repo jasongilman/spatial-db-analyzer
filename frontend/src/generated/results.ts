@@ -206,7 +206,7 @@ export interface GridConfig {
 /**
  * A longitude/latitude bounding box in degrees.
  *
- * ``west > east`` means the box crosses the antimeridian: it runs east from
+ * A ``west`` greater than ``east`` means the box crosses the antimeridian: it runs east from
  * ``west`` through +/-180 to ``east``, rather than west across the whole map.
  */
 export interface BBox {
