@@ -1,0 +1,91 @@
+[project]
+name = "spatial-db-analyzer"
+version = "0.1.0"
+description = "Compares how spatial databases and libraries handle geodetic polygons."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { file = "LICENSE" }
+dependencies = [
+  "pydantic>=2.13",
+  "numpy>=2.5",
+  "shapely>=2.1",
+  "spherely>=0.1.1",
+  "duckdb>=1.5",
+  "antimeridian>=0.4.9",
+]
+
+[project.scripts]
+spatial-db-analyzer = "spatial_db_analyzer.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1",
+  "ruff>=0.16",
+  "pyright>=1.1.414",
+  "types-shapely>=2.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "src"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.pyright]
+pythonVersion = "3.13"
+include = ["src/", "tests/"]
+ignore = ["**/venv/**", "**/.venv/**", "*.pyc", "build/"]
+typeCheckingMode = "strict"
+reportGeneralTypeIssues = true
+reportImplicitStringConcatenation = "none"
+reportPropertyTypeMismatch = "error"
+reportTypedDictNotRequiredAccess = "none"
+reportUninitializedInstanceVariable = "error"
+reportUnknownArgumentType = "error"
+reportUnknownMemberType = "error"
+reportUnknownVariableType = "error"
+reportUnnecessaryComparison = "error"
+reportIncompatibleVariableOverride = "none"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# Without this, the TC rules move model imports into `if TYPE_CHECKING:` blocks
+# and pydantic can no longer resolve the annotations at import time.
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
+[tool.ruff.lint]
+select = ['ALL']
+ignore = [
+  'RET504',  # Unnecessary assignment before return
+  'COM812',  # Trailing comma missing
+  'D100',    # Missing docstring in module
+  'D101',    # Missing docstring in public class
+  'D102',    # Missing docstring in public method
+  'D105',    # Missing docstring in magic method
+  'D107',    # Missing docstring in __init__
+  'D203',    # 1 blank line before class docstring
+  'D213',    # Multi-line summary should start at the second line
+  'TRY002', 'TRY003', 'EM101', 'EM102',  # Allow messages in exception declarations
+  'TD002', 'TD003', 'TD004', 'FIX002',   # Allow TODOs
+  'CPY001',  # Missing copyright notice at top of file
+]
+
+[tool.ruff.lint.per-file-ignores]
+'__init__.py' = ['E402', 'F401']
+'tests/**/*' = [
+  'S101',     # assert
+  'ANN201',   # missing return type
+  'D1',       # missing docstrings
+  'SLF001',   # private member access
+  'PLR2004',  # magic values
+]

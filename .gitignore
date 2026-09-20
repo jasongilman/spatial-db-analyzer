@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Phase 1 additions
+node_modules/
+frontend/dist/
+.venv/
