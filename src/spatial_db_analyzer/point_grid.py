@@ -5,6 +5,8 @@ which matters because a naive lon/lat lattice piles up at the poles, exactly
 where the interesting failures are.
 """
 
+from typing import NamedTuple
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -15,6 +17,13 @@ GOLDEN_ANGLE = np.pi * (3.0 - np.sqrt(5.0))
 
 HALF_TURN_DEG = 180.0
 """Half a turn in degrees; longitudes at or above this wrap into the negative half."""
+
+
+class Grid(NamedTuple):
+    """The test points, as parallel arrays of degrees."""
+
+    lons: NDArray[np.float64]
+    lats: NDArray[np.float64]
 
 
 def fibonacci_sphere(count: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
@@ -68,9 +77,7 @@ def in_region(
     return within_lat & within_lon
 
 
-def build_grid(
-    count: int, region: BBox | None = None
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+def build_grid(count: int, region: BBox | None = None) -> Grid:
     """Build the test grid, optionally limited to a region.
 
     The region is applied as a filter after generation, so ``count`` is the
@@ -82,10 +89,10 @@ def build_grid(
         region: Optional window limiting which points are kept.
 
     Returns:
-        A ``(lons, lats)`` pair of degree arrays.
+        The grid, as a ``(lons, lats)`` pair of degree arrays.
     """
     lons, lats = fibonacci_sphere(count)
     if region is None:
-        return lons, lats
+        return Grid(lons, lats)
     keep = in_region(lons, lats, region)
-    return lons[keep], lats[keep]
+    return Grid(lons[keep], lats[keep])

@@ -14,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 LonLat = tuple[float, float]
 """A ``(longitude, latitude)`` pair in degrees."""
 
+Outcome = Literal["correct", "accepted_but_wrong", "rejected", "error"]
+"""The verdict for one combination; see the outcome table in the Phase 1 plan."""
+
 MIN_RING_POSITIONS = 4
 """A closed ring needs at least three distinct corners plus the repeated first point."""
 
@@ -198,7 +201,7 @@ class CombinationResult(StrictModel):
     system_id: str
     variant_id: str
     outcome: Annotated[
-        Literal["correct", "accepted_but_wrong", "rejected", "error"],
+        Outcome,
         Field(description="Overall verdict; see the outcome table in the Phase 1 plan."),
     ]
     accepted: Annotated[

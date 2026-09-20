@@ -82,6 +82,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 '__init__.py' = ['E402', 'F401']
+# The CLI's job is to print to the terminal.
+'src/spatial_db_analyzer/cli.py' = ['T201']
 'tests/**/*' = [
   'S101',     # assert
   'ANN201',   # missing return type
