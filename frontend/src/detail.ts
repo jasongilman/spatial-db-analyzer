@@ -23,7 +23,7 @@ import type { Position } from "./geo";
 import { MapView } from "./map";
 import type { ClassifiedPoints, Scene } from "./map";
 import { POINT_CLASS_ORDER } from "./map";
-import { OUTCOME_DESCRIPTIONS, POINT_COLORS, outcomeStyle } from "./palette";
+import { OUTCOME_DESCRIPTIONS, POINT_COLORS, outcomeHasAnswer, outcomeStyle } from "./palette";
 import type { PointClass } from "./palette";
 import { formatRoute } from "./routing";
 import type { ComboRoute } from "./routing";
@@ -37,7 +37,39 @@ const POINT_LABELS: Record<PointClass, string> = {
   falsePositive: "False positive: called inside, is outside",
   falseNegative: "False negative: called outside, is inside",
   skipped: "Skipped: too close to an edge to score",
+  referenceInside: "Inside, by the reference — the library gave no answer",
+  referenceOutside: "Outside, by the reference — the library gave no answer",
 };
+
+const NO_ANSWER_NOTE =
+  "This library never answered for this polygon, so the points below are ground truth only. " +
+  "None of them is a mark for or against the library.";
+
+/**
+ * The maps the detail view currently owns.
+ *
+ * Module scope, with a single resize listener over it, because the view is
+ * re-rendered on every navigation: registering a listener per render would
+ * leak one closure — and two detached canvases — per click.
+ */
+let activeViews: MapView[] = [];
+let resizeListening = false;
+
+function resizeActiveViews(): void {
+  for (const view of activeViews) {
+    view.resize();
+  }
+}
+
+/**
+ * Release the maps the detail view was holding.
+ *
+ * Call before rendering any other view, so the resize listener stops retaining
+ * canvases that are no longer on the page.
+ */
+export function disposeDetail(): void {
+  activeViews = [];
+}
 
 /**
  * Classify every grid point for drawing.
@@ -50,6 +82,10 @@ export function classifyPoints(dataset: Dataset, route: ComboRoute): ClassifiedP
   const points = dataset.file.points;
   const reference = dataset.referenceByPolygon.get(route.polygonId);
   const result = findResult(dataset, route.polygonId, route.systemId, route.variantId);
+  // A rejected or errored library never said anything about these points, so
+  // "correct" is not available to describe them: they are drawn as ground
+  // truth in a neutral style instead.
+  const answered = result !== undefined && outcomeHasAnswer(result.outcome);
 
   const lons = new Float64Array(points.length);
   const lats = new Float64Array(points.length);
@@ -62,19 +98,21 @@ export function classifyPoints(dataset: Dataset, route: ComboRoute): ClassifiedP
   }
 
   const codeOf = (name: PointClass): number => POINT_CLASS_ORDER.indexOf(name);
-  classes.fill(codeOf("correctOutside"));
+  classes.fill(codeOf(answered ? "correctOutside" : "referenceOutside"));
 
   for (const index of reference?.inside_indices ?? []) {
-    classes[index] = codeOf("correctInside");
+    classes[index] = codeOf(answered ? "correctInside" : "referenceInside");
   }
   for (const index of reference?.skipped_indices ?? []) {
     classes[index] = codeOf("skipped");
   }
-  for (const index of result?.false_positive_indices ?? []) {
-    classes[index] = codeOf("falsePositive");
-  }
-  for (const index of result?.false_negative_indices ?? []) {
-    classes[index] = codeOf("falseNegative");
+  if (answered) {
+    for (const index of result.false_positive_indices) {
+      classes[index] = codeOf("falsePositive");
+    }
+    for (const index of result.false_negative_indices) {
+      classes[index] = codeOf("falseNegative");
+    }
   }
 
   return { lons, lats, classes };
@@ -145,6 +183,10 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
     showSkipped: false,
   };
 
+  if (!outcomeHasAnswer(result.outcome)) {
+    maps.append("p").attr("class", "maps-note").text(NO_ANSWER_NOTE);
+  }
+
   const views: MapView[] = [];
   for (const kind of ["orthographic", "equirectangular"] as const) {
     const figure = maps.append("figure").attr("class", `map map-${kind}`);
@@ -165,14 +207,13 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
 
   renderMapLegend(maps.append("div").attr("class", "map-legend"), scene, views);
 
-  const onResize = (): void => {
-    for (const view of views) {
-      view.resize();
-    }
-  };
-  window.addEventListener("resize", onResize);
+  activeViews = views;
+  if (!resizeListening) {
+    window.addEventListener("resize", resizeActiveViews);
+    resizeListening = true;
+  }
   // Re-render once after layout settles, so the canvases pick up their real size.
-  requestAnimationFrame(onResize);
+  requestAnimationFrame(resizeActiveViews);
 
   return true;
 }
@@ -193,14 +234,21 @@ function renderMapLegend<E extends BaseType>(
     submitted.append("span").text("What the library was handed, as the library sees it");
   }
 
+  // Only label what is actually drawn. A legend entry for "Correct: inside" on
+  // a map where the library never answered is exactly the claim to avoid.
+  const present = new Set(scene.points.classes);
   const pointRow = legend.append("div").attr("class", "legend-row");
-  for (const pointClass of POINT_CLASS_ORDER) {
-    if (pointClass === "skipped") {
+  for (const [code, pointClass] of POINT_CLASS_ORDER.entries()) {
+    if (pointClass === "skipped" || !present.has(code)) {
       continue;
     }
     const item = pointRow.append("span").attr("class", "legend-item");
     item.append("span").attr("class", "dot").style("background-color", POINT_COLORS[pointClass]);
     item.append("span").text(POINT_LABELS[pointClass]);
+  }
+
+  if (!present.has(POINT_CLASS_ORDER.indexOf("skipped"))) {
+    return;
   }
 
   const toggle = legend.append("label").attr("class", "toggle");
@@ -212,7 +260,9 @@ function renderMapLegend<E extends BaseType>(
       if (input instanceof HTMLInputElement) {
         scene.showSkipped = input.checked;
         for (const view of views) {
-          view.setScene(scene);
+          // redraw, not setScene: the scene is the same object, and recentering
+          // here would snap a globe the viewer had dragged back to the start.
+          view.redraw();
         }
       }
     });

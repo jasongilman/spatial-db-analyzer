@@ -14,7 +14,7 @@ import { formatRoute } from "./routing";
 import { OUTCOME_DESCRIPTIONS, OUTCOME_LABELS, outcomeStyle } from "./palette";
 import type { Outcome } from "./palette";
 
-const OUTCOME_ORDER: Outcome[] = ["correct", "accepted_but_wrong", "rejected", "error"];
+const OUTCOME_ORDER: Outcome[] = ["correct", "accepted_but_wrong", "rejected", "error", "no_data"];
 
 /**
  * Render the summary view into a container.

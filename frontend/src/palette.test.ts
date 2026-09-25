@@ -5,11 +5,12 @@ import {
   OUTCOME_DESCRIPTIONS,
   OUTCOME_LABELS,
   POINT_COLORS,
+  outcomeHasAnswer,
   outcomeStyle,
 } from "./palette";
 import type { Outcome } from "./palette";
 
-const OUTCOMES: Outcome[] = ["correct", "accepted_but_wrong", "rejected", "error"];
+const OUTCOMES: Outcome[] = ["correct", "accepted_but_wrong", "rejected", "error", "no_data"];
 
 describe("outcomeStyle", () => {
   it("maps each outcome to its color and label", () => {
@@ -20,6 +21,7 @@ describe("outcomeStyle", () => {
     });
     expect(outcomeStyle("rejected")).toEqual({ color: "#E69F00", label: "Rejected" });
     expect(outcomeStyle("error")).toEqual({ color: "#8B4513", label: "Error" });
+    expect(outcomeStyle("no_data")).toEqual({ color: "#767676", label: "No data" });
   });
 
   it("covers every outcome", () => {
@@ -49,5 +51,16 @@ describe("the palette", () => {
 
   it("labels every outcome", () => {
     expect(Object.keys(OUTCOME_LABELS).sort()).toEqual([...OUTCOMES].sort());
+  });
+});
+
+describe("outcomeHasAnswer", () => {
+  it("is false only where the library never answered", () => {
+    expect(outcomeHasAnswer("rejected")).toBe(false);
+    expect(outcomeHasAnswer("error")).toBe(false);
+    expect(outcomeHasAnswer("correct")).toBe(true);
+    expect(outcomeHasAnswer("accepted_but_wrong")).toBe(true);
+    // The library answered; there was just nothing to compare it to.
+    expect(outcomeHasAnswer("no_data")).toBe(true);
   });
 });

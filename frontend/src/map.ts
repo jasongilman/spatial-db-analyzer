@@ -36,7 +36,9 @@ export interface ClassifiedPoints {
 /** The order classes are drawn in, back to front, and their numeric codes. */
 export const POINT_CLASS_ORDER: PointClass[] = [
   "correctOutside",
+  "referenceOutside",
   "skipped",
+  "referenceInside",
   "correctInside",
   "falseNegative",
   "falsePositive",
@@ -67,6 +69,8 @@ const POINT_RADIUS: Record<PointClass, number> = {
   falsePositive: 3,
   falseNegative: 3,
   skipped: 1.6,
+  referenceInside: 1.9,
+  referenceOutside: 1.1,
 };
 
 /** A map attached to a canvas, redrawn on demand. */
@@ -101,6 +105,16 @@ export class MapView {
 
   /** Resize the backing store to the element and redraw. */
   resize(): void {
+    this.render();
+  }
+
+  /**
+   * Redraw the scene already set, for a control that changed it in place.
+   *
+   * Separate from {@link setScene} because that recenters the globe, which
+   * would throw away a rotation the viewer had dragged to.
+   */
+  redraw(): void {
     this.render();
   }
 

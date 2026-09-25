@@ -8,7 +8,7 @@
 /**
  * Bumped whenever this file's shape changes.
  */
-export type SchemaVersion = 1;
+export type SchemaVersion = 2;
 /**
  * When the run was made, in UTC.
  */
@@ -121,7 +121,7 @@ export type VariantId = string;
 /**
  * Overall verdict; see the outcome table in the Phase 1 plan.
  */
-export type Outcome = "correct" | "accepted_but_wrong" | "rejected" | "error";
+export type Outcome = "correct" | "accepted_but_wrong" | "rejected" | "error" | "no_data";
 /**
  * Whether the library took the polygon without rejecting it.
  */
@@ -144,7 +144,7 @@ export type Type1 = "MultiPolygon";
  */
 export type Coordinates1 = [[number, number][]][];
 /**
- * Percentage of non-skipped points matching the reference, or None when the polygon was rejected or errored and there is nothing to compare.
+ * Percentage of non-skipped points matching the reference, or None when there was nothing to compare: the polygon was rejected or errored, or no point was scored at all.
  */
 export type AgreementPct = number | null;
 /**

@@ -24,7 +24,7 @@ SQUARE = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0))
 def _results_file() -> ResultsFile:
     polygon = GeoJsonPolygon(coordinates=(SQUARE,))
     return ResultsFile(
-        schema_version=1,
+        schema_version=2,
         generated_at=datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
         grid=GridConfig(point_count=3, region=None, edge_tolerance_deg=0.25),
         points=((0.0, 0.0), (5.0, 5.0), (90.0, 45.0)),

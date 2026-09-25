@@ -36,8 +36,23 @@ def parse_region(text: str) -> BBox:
 
 
 def _parse_ids(text: str) -> tuple[str, ...]:
-    """Split a comma-separated list of ids, dropping blanks."""
-    return tuple(part.strip() for part in text.split(",") if part.strip())
+    """Split a comma-separated list of ids, dropping blanks.
+
+    Args:
+        text: The comma-separated value.
+
+    Returns:
+        The ids, in the order given.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value names no ids at all. An empty
+            selection is never what the caller meant, and left alone it runs
+            nothing and overwrites the results file with an empty matrix.
+    """
+    ids = tuple(part.strip() for part in text.split(",") if part.strip())
+    if not ids:
+        raise argparse.ArgumentTypeError(f"expected at least one id, got {text!r}")
+    return ids
 
 
 def summary_table(results: ResultsFile) -> str:
@@ -61,10 +76,16 @@ def summary_table(results: ResultsFile) -> str:
         for result in results.results
     }
 
-    symbols = {"correct": "ok", "accepted_but_wrong": "WRONG", "rejected": "rej", "error": "ERR"}
+    symbols = {
+        "correct": "ok",
+        "accepted_but_wrong": "WRONG",
+        "rejected": "rej",
+        "error": "ERR",
+        "no_data": "NONE",
+    }
     headers = [f"{system}/{variant}" for system, variant in columns]
     widths = [max(len(header), 13) for header in headers]
-    label_width = max(len(polygon.id) for polygon in results.polygons)
+    label_width = max((len(polygon.id) for polygon in results.polygons), default=0)
 
     lines = [
         " " * label_width

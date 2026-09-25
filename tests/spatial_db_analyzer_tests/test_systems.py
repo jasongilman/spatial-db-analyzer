@@ -9,15 +9,17 @@ import numpy as np
 import pytest
 
 from spatial_db_analyzer.models import (
+    BBox,
     CombinationResult,
     GeoJsonMultiPolygon,
     GeoJsonPolygon,
     GridConfig,
+    ReferenceResult,
     ResultsFile,
 )
 from spatial_db_analyzer.point_grid import Grid
 from spatial_db_analyzer.reference import evaluate_polygon
-from spatial_db_analyzer.runner import run, run_combination
+from spatial_db_analyzer.runner import bbox_covers, run, run_combination
 from spatial_db_analyzer.spherical import (
     angular_distance_to_edges,
     lonlat_to_xyz,
@@ -25,6 +27,7 @@ from spatial_db_analyzer.spherical import (
     xyz_to_lonlat,
 )
 from spatial_db_analyzer.systems import ALL_SYSTEMS
+from spatial_db_analyzer.systems.base import SystemEvaluation
 from spatial_db_analyzer.test_polygons import POLYGONS_BY_ID
 from spatial_db_analyzer.workarounds import densify, fix_antimeridian
 
@@ -184,6 +187,66 @@ def test_bbox_of_a_planar_antimeridian_polygon_does_not_cover_the_truth(results:
     assert result.bbox is not None
     assert result.bbox.west < result.bbox.east, "a planar library cannot express a crossing box"
     assert result.bbox_covers_expected is False
+
+
+def test_duckdb_does_not_reuse_a_stale_point_grid():
+    """The adapter is a module-level singleton, so it outlives one run.
+
+    Two grids of the same length are the dangerous case: keyed on length alone,
+    the second silently gets the first grid's coordinates back.
+    """
+    system = next(system for system in ALL_SYSTEMS if system.info.id == "duckdb_spatial")
+    polygon = POLYGONS_BY_ID["normal"]
+    inside = (-100.0, 37.0)
+    outside = (0.0, 0.0)
+
+    first = system.evaluate(
+        polygon,
+        np.array([inside[0], outside[0]]),
+        np.array([inside[1], outside[1]]),
+        "raw",
+    )
+    second = system.evaluate(
+        polygon,
+        np.array([outside[0], inside[0]]),
+        np.array([outside[1], inside[1]]),
+        "raw",
+    )
+
+    assert first.contains == (True, False)
+    assert second.contains == (False, True), "the second grid was answered from the first's table"
+
+
+def _evaluation_with_bbox(bbox: BBox) -> SystemEvaluation:
+    return SystemEvaluation(
+        accepted=True,
+        validation_errors=(),
+        submitted_geometry=POLYGONS_BY_ID["normal"].polygon,
+        contains=(),
+        area_m2=None,
+        bbox=bbox,
+    )
+
+
+def _reference_with_bbox(bbox: BBox) -> ReferenceResult:
+    return ReferenceResult(inside_indices=(), skipped_indices=(), area_m2=1.0, bbox=bbox)
+
+
+def test_a_bbox_check_handles_an_expected_box_that_crosses_the_antimeridian():
+    """The latitudes match here on purpose: only the longitudes can decide it."""
+    expected = _reference_with_bbox(BBox(west=160.0, south=-20.0, east=-160.0, north=20.0))
+
+    # Runs the other way round the globe: it covers everything except the band.
+    planar = BBox(west=-160.0, south=-20.0, east=160.0, north=20.0)
+    assert bbox_covers(_evaluation_with_bbox(planar), expected) is False
+
+    # The whole longitude range trivially covers both halves of the band.
+    whole_world = BBox(west=-180.0, south=-20.0, east=180.0, north=20.0)
+    assert bbox_covers(_evaluation_with_bbox(whole_world), expected) is True
+
+    # A wider crossing box covers a narrower one.
+    wider = BBox(west=150.0, south=-20.0, east=-150.0, north=20.0)
+    assert bbox_covers(_evaluation_with_bbox(wider), expected) is True
 
 
 def test_densify_adds_vertices_on_the_true_edge():

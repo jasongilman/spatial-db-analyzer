@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 import numpy as np
 
 from spatial_db_analyzer.models import (
+    MAX_LONGITUDE,
+    BBox,
     CombinationResult,
     GridConfig,
     Outcome,
@@ -54,7 +56,8 @@ def _score(
 
     Returns:
         A tuple of the outcome, the agreement percentage, the false positive
-        indices and the false negative indices.
+        indices and the false negative indices. The percentage is None whenever
+        there was nothing to compare.
     """
     rejected = not evaluation.accepted or (
         bool(evaluation.validation_errors) and polygon.expected_valid
@@ -68,14 +71,21 @@ def _score(
     scored = np.ones(point_count, dtype=np.bool_)
     scored[list(reference.skipped_indices)] = False
 
+    scored_count = int(np.count_nonzero(scored))
+    if scored_count == 0:
+        # No point was compared, because the grid is empty here or every point
+        # sits inside the edge tolerance. Reporting that as 100% correct would
+        # show a run that tested nothing as a perfect pass, which is the one
+        # failure this tool exists to catch.
+        return "no_data", None, (), ()
+
     reported = np.array(evaluation.contains, dtype=np.bool_)
 
     false_positives = np.flatnonzero(scored & reported & ~truth)
     false_negatives = np.flatnonzero(scored & ~reported & truth)
 
-    scored_count = int(np.count_nonzero(scored))
     wrong = len(false_positives) + len(false_negatives)
-    agreement = 100.0 * (scored_count - wrong) / scored_count if scored_count else 100.0
+    agreement = 100.0 * (scored_count - wrong) / scored_count
 
     outcome: Outcome = "correct" if wrong == 0 else "accepted_but_wrong"
     return (
@@ -86,7 +96,22 @@ def _score(
     )
 
 
-def _bbox_covers(evaluation: SystemEvaluation, reference: ReferenceResult) -> bool | None:
+def _longitude_segments(box: BBox) -> tuple[tuple[float, float], ...]:
+    """Split a box's longitude range into segments that do not wrap.
+
+    Args:
+        box: The box, whose ``west`` may be greater than its ``east``.
+
+    Returns:
+        One segment, or the two either side of +/-180 when the box crosses the
+        antimeridian.
+    """
+    if box.west <= box.east:
+        return ((box.west, box.east),)
+    return ((box.west, MAX_LONGITUDE), (-MAX_LONGITUDE, box.east))
+
+
+def bbox_covers(evaluation: SystemEvaluation, reference: ReferenceResult) -> bool | None:
     """Test whether the library's bounding box contains the expected one.
 
     Args:
@@ -104,9 +129,19 @@ def _bbox_covers(evaluation: SystemEvaluation, reference: ReferenceResult) -> bo
     if theirs.south > expected.south or theirs.north < expected.north:
         return False
 
-    # A library reporting west > east would mean an antimeridian-crossing box.
-    # None of the planar systems do that, so a straight comparison is enough.
-    return theirs.west <= expected.west and theirs.east >= expected.east
+    # Either box may cross the antimeridian, which a `west` greater than `east`
+    # signals. The expected box does exactly that for the `antimeridian`
+    # polygon, so comparing the four numbers directly would let a planar box
+    # running the other way round the globe pass. Compare the segments instead:
+    # every part of the expected range has to sit inside one of theirs.
+    theirs_segments = _longitude_segments(theirs)
+    return all(
+        any(
+            theirs_west <= wanted_west and theirs_east >= wanted_east
+            for theirs_west, theirs_east in theirs_segments
+        )
+        for wanted_west, wanted_east in _longitude_segments(expected)
+    )
 
 
 def run_combination(
@@ -179,23 +214,39 @@ def run_combination(
         area_m2=evaluation.area_m2,
         area_error_pct=area_error_pct,
         bbox=evaluation.bbox,
-        bbox_covers_expected=_bbox_covers(evaluation, reference),
+        bbox_covers_expected=bbox_covers(evaluation, reference),
         duration_ms=(time.perf_counter() - started) * 1000.0,
     )
 
 
-def _reference_combination(polygon: TestPolygon, reference: ReferenceResult) -> CombinationResult:
-    """Build the control column's entry from ground truth already computed."""
+def _reference_combination(
+    polygon: TestPolygon, reference: ReferenceResult, point_count: int
+) -> CombinationResult:
+    """Build the control column's entry from ground truth already computed.
+
+    The control agrees with itself by construction, but only when there is
+    something to agree about: with no scored points it reports `no_data` like
+    any other column, so an empty run cannot show a row of perfect scores.
+
+    Args:
+        polygon: The polygon this row is for.
+        reference: Ground truth for it.
+        point_count: How many grid points there are.
+
+    Returns:
+        The control column's result.
+    """
+    scored_any = point_count - len(reference.skipped_indices) > 0
     return CombinationResult(
         polygon_id=polygon.id,
         system_id=REFERENCE_INFO.id,
         variant_id=REFERENCE_VARIANT.id,
-        outcome="correct",
+        outcome="correct" if scored_any else "no_data",
         accepted=True,
         validation_errors=(),
         error_message=None,
         submitted_geometry=polygon.polygon,
-        agreement_pct=100.0,
+        agreement_pct=100.0 if scored_any else None,
         false_positive_indices=(),
         false_negative_indices=(),
         area_m2=reference.area_m2,
@@ -241,7 +292,7 @@ def run(
     grid_points = Grid(lons, lats)
     results: list[CombinationResult] = []
     for polygon in polygons:
-        results.append(_reference_combination(polygon, reference[polygon.id]))
+        results.append(_reference_combination(polygon, reference[polygon.id], len(lons)))
         results.extend(
             run_combination(
                 system,
@@ -268,7 +319,7 @@ def run(
     )
 
     return ResultsFile(
-        schema_version=1,
+        schema_version=2,
         generated_at=datetime.now(UTC),
         grid=config,
         points=points,

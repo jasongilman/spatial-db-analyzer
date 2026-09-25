@@ -16,7 +16,7 @@ import type {
 } from "./generated/results";
 
 /** The schema version this front end understands. */
-export const SUPPORTED_SCHEMA_VERSION = 1;
+export const SUPPORTED_SCHEMA_VERSION = 2;
 
 /** One column of the summary matrix: a system paired with one of its variants. */
 export interface Column {

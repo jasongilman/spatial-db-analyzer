@@ -6,12 +6,15 @@ import "./style.css";
 
 import { loadResults } from "./data";
 import type { Dataset } from "./data";
-import { renderDetail } from "./detail";
+import { disposeDetail, renderDetail } from "./detail";
 import { formatRoute, parseRoute } from "./routing";
 import { renderSummary } from "./summary";
 
 function render(container: HTMLElement, dataset: Dataset): void {
   const route = parseRoute(window.location.hash);
+  // Whatever we render next replaces the container's contents, so the maps the
+  // detail view was holding are about to be detached.
+  disposeDetail();
 
   if (route.kind === "combo" && renderDetail(container, dataset, route)) {
     window.scrollTo(0, 0);

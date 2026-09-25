@@ -6,6 +6,7 @@ surface: validity is a bare boolean, there is no reason string, and geometry
 arrives as GeoJSON text through a query parameter.
 """
 
+import hashlib
 import json
 from typing import Any, cast
 
@@ -41,6 +42,26 @@ ANTIMERIDIAN_FIX = Variant(
     ),
 )
 
+GRID_DIGEST_BYTES = 16
+"""Digest width for the grid fingerprint. Collisions here would reuse the wrong table."""
+
+
+def _grid_fingerprint(lons: NDArray[np.float64], lats: NDArray[np.float64]) -> str:
+    """Fingerprint a grid by its coordinates.
+
+    Args:
+        lons: Grid longitudes in degrees.
+        lats: Grid latitudes in degrees.
+
+    Returns:
+        A hex digest that changes whenever any coordinate does.
+    """
+    digest = hashlib.blake2b(digest_size=GRID_DIGEST_BYTES)
+    digest.update(np.ascontiguousarray(lons).tobytes())
+    digest.update(np.ascontiguousarray(lats).tobytes())
+    return digest.hexdigest()
+
+
 DENSIFIED_FIX = Variant(
     id="densified_fix",
     name="Densified, then fixed",
@@ -58,8 +79,10 @@ DENSIFIED_FIX = Variant(
 class DuckDbSpatialSystem:
     """Adapter for DuckDB with the `spatial` extension.
 
-    Holds one connection for the whole run, with the grid loaded into a table
-    once, so each polygon costs a single containment query.
+    Holds one connection, with the grid loaded into a table once, so each
+    polygon costs a single containment query. The instance outlives a single
+    run, so the table is keyed on the grid's coordinates rather than its
+    length: two different grids of the same size must not share a table.
     """
 
     info = SystemInfo(
@@ -79,7 +102,7 @@ class DuckDbSpatialSystem:
 
     def __init__(self) -> None:
         self._connection: duckdb.DuckDBPyConnection | None = None
-        self._grid_size: int | None = None
+        self._grid_key: str | None = None
 
     def _connect(self) -> duckdb.DuckDBPyConnection:
         """Open the connection and load the extension, once per run."""
@@ -94,7 +117,8 @@ class DuckDbSpatialSystem:
     ) -> duckdb.DuckDBPyConnection:
         """Create the points table, reusing it when the grid has not changed."""
         connection = self._connect()
-        if self._grid_size == len(lons):
+        key = _grid_fingerprint(lons, lats)
+        if self._grid_key == key:
             return connection
 
         connection.execute("DROP TABLE IF EXISTS points")
@@ -103,8 +127,11 @@ class DuckDbSpatialSystem:
             (index, float(lon), float(lat))
             for index, (lon, lat) in enumerate(zip(lons, lats, strict=True))
         ]
-        connection.executemany("INSERT INTO points VALUES (?, ?, ?)", rows)
-        self._grid_size = len(lons)
+        # An empty grid is a legitimate run: a region with no points in it. DuckDB
+        # rejects executemany with no parameter sets, so the table just stays empty.
+        if rows:
+            connection.executemany("INSERT INTO points VALUES (?, ?, ?)", rows)
+        self._grid_key = key
         return connection
 
     def evaluate(

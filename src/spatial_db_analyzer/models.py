@@ -14,8 +14,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 LonLat = tuple[float, float]
 """A ``(longitude, latitude)`` pair in degrees."""
 
-Outcome = Literal["correct", "accepted_but_wrong", "rejected", "error"]
-"""The verdict for one combination; see the outcome table in the Phase 1 plan."""
+Outcome = Literal["correct", "accepted_but_wrong", "rejected", "error", "no_data"]
+"""The verdict for one combination; see the outcome table in the Phase 1 plan.
+
+`no_data` means there was nothing to score: no grid points in the region, or
+every point skipped for sitting too close to an edge. It is deliberately not
+`correct`, because a run that compared nothing is not a run that agreed.
+"""
 
 MIN_RING_POSITIONS = 4
 """A closed ring needs at least three distinct corners plus the repeated first point."""
@@ -226,8 +231,9 @@ class CombinationResult(StrictModel):
         float | None,
         Field(
             description=(
-                "Percentage of non-skipped points matching the reference, or None when the "
-                "polygon was rejected or errored and there is nothing to compare."
+                "Percentage of non-skipped points matching the reference, or None when there "
+                "was nothing to compare: the polygon was rejected or errored, or no point was "
+                "scored at all."
             )
         ),
     ]
@@ -262,8 +268,8 @@ class ResultsFile(StrictModel):
     """The whole precomputed results file the front end loads."""
 
     schema_version: Annotated[
-        Literal[1], Field(description="Bumped whenever this file's shape changes.")
-    ] = 1
+        Literal[2], Field(description="Bumped whenever this file's shape changes.")
+    ] = 2
     generated_at: Annotated[datetime, Field(description="When the run was made, in UTC.")]
     grid: GridConfig
     points: Annotated[

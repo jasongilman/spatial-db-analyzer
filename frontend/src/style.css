@@ -259,6 +259,17 @@ pre {
   gap: 1rem;
 }
 
+.maps-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 .map {
   margin: 0;
 }

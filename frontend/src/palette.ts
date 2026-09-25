@@ -20,6 +20,10 @@ export const POINT_COLORS = {
   falseNegative: "#E69F00",
   /** Too close to an edge to score. Hidden unless the toggle is on. */
   skipped: "#7F7F7F",
+  /** Inside by the reference, where the library never answered. Neutral on purpose. */
+  referenceInside: "#555555",
+  /** Outside by the reference, where the library never answered. */
+  referenceOutside: "#DDDDDD",
 } as const;
 
 export type PointClass = keyof typeof POINT_COLORS;
@@ -29,6 +33,7 @@ export const OUTCOME_COLORS = {
   accepted_but_wrong: "#D55E00",
   rejected: "#E69F00",
   error: "#8B4513",
+  no_data: "#767676",
 } as const;
 
 export type Outcome = keyof typeof OUTCOME_COLORS;
@@ -39,6 +44,7 @@ export const OUTCOME_LABELS: Record<Outcome, string> = {
   accepted_but_wrong: "Accepted but wrong",
   rejected: "Rejected",
   error: "Error",
+  no_data: "No data",
 };
 
 /** One-line explanations of what each outcome means. */
@@ -47,6 +53,9 @@ export const OUTCOME_DESCRIPTIONS: Record<Outcome, string> = {
   accepted_but_wrong: "The library took the polygon, then answered wrongly for some points.",
   rejected: "The library refused the polygon, or its own validation reported errors.",
   error: "The run raised an unexpected exception.",
+  no_data:
+    "Nothing was scored: no test points landed here, or every one of them was too close to an " +
+    "edge. This is not agreement.",
 };
 
 /** Geometry stroke colors, shared by both maps. */
@@ -69,4 +78,18 @@ export const GEOMETRY_COLORS = {
  */
 export function outcomeStyle(outcome: Outcome): { color: string; label: string } {
   return { color: OUTCOME_COLORS[outcome], label: OUTCOME_LABELS[outcome] };
+}
+
+/**
+ * Whether the library gave containment answers at all for this outcome.
+ *
+ * A rejected or errored combination never answered, so there is nothing of the
+ * library's to draw or score against. `no_data` did answer; there was just
+ * nothing to compare the answers to.
+ *
+ * @param outcome - The combination's outcome.
+ * @returns True when the library answered.
+ */
+export function outcomeHasAnswer(outcome: Outcome): boolean {
+  return outcome !== "rejected" && outcome !== "error";
 }

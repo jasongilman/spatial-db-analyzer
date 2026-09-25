@@ -48,7 +48,7 @@ function result(overrides: Partial<CombinationResult> = {}): CombinationResult {
 }
 
 const file: ResultsFile = {
-  schema_version: 1,
+  schema_version: 2,
   generated_at: "2026-09-20T12:00:00Z",
   grid: { point_count: 3, region: null, edge_tolerance_deg: 0.25 },
   points: [

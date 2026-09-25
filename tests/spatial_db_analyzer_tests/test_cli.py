@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from spatial_db_analyzer.cli import main, parse_region, summary_table
-from spatial_db_analyzer.models import GridConfig, ResultsFile
+from spatial_db_analyzer.models import BBox, GridConfig, ResultsFile
 from spatial_db_analyzer.runner import run
 from spatial_db_analyzer.systems import ALL_SYSTEMS
 from spatial_db_analyzer.test_polygons import ALL_TEST_POLYGONS
@@ -29,7 +29,7 @@ def test_the_written_file_validates_as_a_results_file(tmp_path: Path):
 
     assert exit_code == 0
     restored = ResultsFile.model_validate_json(output.read_text(encoding="utf-8"))
-    assert restored.schema_version == 1
+    assert restored.schema_version == 2
     assert len(restored.points) == SMALL_GRID
 
 
@@ -99,6 +99,16 @@ def test_an_unknown_polygon_id_is_an_error(tmp_path: Path, capsys: pytest.Captur
     assert "Unknown polygon ids: nope" in capsys.readouterr().err
 
 
+def test_an_empty_selection_is_rejected_before_anything_is_written(tmp_path: Path):
+    """An unset shell variable must not blank the results file."""
+    output = tmp_path / "x.json"
+    for flag in ("--polygons", "--systems"):
+        with pytest.raises(SystemExit) as raised:
+            main(["run", flag, "", "--output", str(output), "--points", "50"])
+        assert raised.value.code == 2, flag
+        assert not output.exists(), f"{flag} wrote a file before failing"
+
+
 def test_an_unknown_system_id_is_an_error(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     exit_code = main(
         ["run", "--systems", "nope", "--output", str(tmp_path / "x.json"), "--points", "50"]
@@ -155,6 +165,33 @@ def test_thesummary_table_has_a_row_per_polygon_and_marks_failures():
     assert "--" in table, "a combination with no percentage renders as a dash, never 0%"
 
 
+def test_a_run_with_nothing_to_score_is_not_reported_as_correct():
+    """The whole point of the tool is that an untested cell cannot look like a pass."""
+    # A window with no grid points in it at this resolution.
+    empty = BBox(west=-110.1, south=36.0, east=-109.95, north=36.4)
+    results = run(grid=GridConfig(point_count=SMALL_GRID, region=empty))
+
+    assert results.points == ()
+    assert results.results, "every combination should still be reported"
+    for result in results.results:
+        # A library that refused the polygon still refused it: that is a fact
+        # about the polygon, not about the grid. Everything else answered, but
+        # has nothing to show for it.
+        assert result.outcome in {"no_data", "rejected"}, (
+            f"{result.polygon_id}/{result.system_id}/{result.variant_id} is {result.outcome}"
+        )
+        assert result.agreement_pct is None
+
+    outcomes = {
+        (result.polygon_id, result.system_id, result.variant_id): result.outcome
+        for result in results.results
+    }
+    # Both of these used to report 100.0% correct over zero points.
+    assert outcomes["normal", "reference", "reference"] == "no_data"
+    assert outcomes["both_poles", "spherely", "default"] == "no_data"
+    assert "NONE" in summary_table(results)
+
+
 def test_the_json_is_compact_enough_to_ship(tmp_path: Path):
     """The front end loads this file on every page load."""
     output = tmp_path / "full.json"
@@ -163,4 +200,4 @@ def test_the_json_is_compact_enough_to_ship(tmp_path: Path):
     assert size_mb < 10.0, f"results.json is {size_mb:.1f} MB"
 
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
