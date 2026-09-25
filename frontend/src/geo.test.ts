@@ -6,10 +6,13 @@ import {
   orientPlanarForD3,
   planarSignedArea,
   isMultiPolygon,
+  reversePolygon,
   ringCentroid,
+  ringStretch,
   ringsOf,
   toD3Geometry,
   toD3Winding,
+  vertexCount,
   toDrawableSubmitted,
   unitVector,
 } from "./geo";
@@ -295,5 +298,75 @@ describe("bboxOutline", () => {
 
   it("draws nothing for a box covering the whole sphere", () => {
     expect(bboxOutline({ west: -180, south: -90, east: 180, north: 90 }).coordinates).toEqual([]);
+  });
+});
+
+describe("reversePolygon", () => {
+  it("reverses the ring and leaves the input alone", () => {
+    const polygon = {
+      type: "Polygon" as const,
+      coordinates: [
+        [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 0],
+        ],
+      ] as [[number, number][]],
+    };
+    expect(reversePolygon(polygon).coordinates[0]).toEqual([
+      [0, 0],
+      [10, 10],
+      [10, 0],
+      [0, 0],
+    ]);
+    expect(polygon.coordinates[0][1]).toEqual([10, 0]);
+  });
+});
+
+describe("vertexCount", () => {
+  it("counts distinct vertices across every part", () => {
+    const ring: [number, number][] = [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 0],
+    ];
+    expect(vertexCount({ type: "Polygon", coordinates: [ring] })).toBe(3);
+    expect(vertexCount({ type: "MultiPolygon", coordinates: [[ring], [ring]] })).toBe(6);
+  });
+});
+
+describe("ringStretch", () => {
+  const ring: [number, number][] = [
+    [0, 0],
+    [5, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+    [0, 0],
+  ];
+
+  it("walks forward from start to end", () => {
+    expect(ringStretch(ring, [0, 0], [10, 0])).toEqual([
+      [0, 0],
+      [5, 0],
+      [10, 0],
+    ]);
+  });
+
+  it("wraps past the closing position", () => {
+    expect(ringStretch(ring, [0, 10], [5, 0])).toEqual([
+      [0, 10],
+      [0, 0],
+      [5, 0],
+    ]);
+  });
+
+  it("matches the nearest positions, not exact ones", () => {
+    expect(ringStretch(ring, [10.000001, 0], [9.999999, 10])).toEqual([
+      [10, 0],
+      [10, 10],
+    ]);
   });
 });

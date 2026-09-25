@@ -16,6 +16,7 @@ from spatial_db_analyzer.models import (
     SystemInfo,
     TestPolygon,
     Variant,
+    WorkaroundInfo,
 )
 
 SQUARE = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0))
@@ -24,7 +25,7 @@ SQUARE = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0))
 def _results_file() -> ResultsFile:
     polygon = GeoJsonPolygon(coordinates=(SQUARE,))
     return ResultsFile(
-        schema_version=3,
+        schema_version=4,
         generated_at=datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
         grid=GridConfig(point_count=3, region=None, edge_tolerance_deg=0.25),
         points=((0.0, 0.0), (5.0, 5.0), (90.0, 45.0)),
@@ -52,6 +53,8 @@ def _results_file() -> ResultsFile:
                 version="2.1.2",
                 semantics="planar",
                 notes="Planar geometry engine.",
+                limitations=("Edges are straight lines.",),
+                docs_url="https://shapely.readthedocs.io/",
             ),
         ),
         variants={
@@ -61,9 +64,12 @@ def _results_file() -> ResultsFile:
                     name="Raw input",
                     description="The polygon as-is.",
                     tradeoffs=("Geodetic cases are wrong.",),
+                    how_it_helps="It doesn't.",
+                    workaround_ids=("densify",),
                 ),
             )
         },
+        workarounds=(WorkaroundInfo(id="densify", name="Densify", explanation="Adds vertices."),),
         results=(
             CombinationResult(
                 polygon_id="square",
@@ -103,6 +109,14 @@ def test_results_file_round_trip_keeps_multipolygon_geometry():
     )
     restored = ResultsFile.model_validate_json(amended.model_dump_json())
     assert restored.results[0].submitted_geometry == multi
+
+
+def test_results_file_rejects_unknown_workaround_id():
+    original = _results_file()
+    with pytest.raises(
+        ValidationError, match=r"shapely/raw names unknown workarounds: \['densify'\]"
+    ):
+        original.model_validate(original.model_dump() | {"workarounds": ()})
 
 
 def test_polygon_rejects_unclosed_ring():

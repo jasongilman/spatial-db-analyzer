@@ -168,6 +168,16 @@ class SystemInfo(StrictModel):
         Field(description="Whether the library treats coordinates as a flat plane or a sphere."),
     ]
     notes: Annotated[str, Field(description="Short explanation of what this library is for.")]
+    limitations: Annotated[
+        tuple[str, ...],
+        Field(
+            description=(
+                "What this library gets wrong with geodetic data, one short statement each. Empty "
+                "only for the reference control."
+            )
+        ),
+    ]
+    docs_url: Annotated[str, Field(description="Link to the library's own documentation.")]
 
 
 class Variant(StrictModel):
@@ -179,6 +189,32 @@ class Variant(StrictModel):
     tradeoffs: Annotated[
         tuple[str, ...],
         Field(description="What the workaround costs. The real lesson of the detail view."),
+    ]
+    how_it_helps: Annotated[
+        str,
+        Field(description="Which of the system's limitations this variant addresses, and how."),
+    ]
+    workaround_ids: Annotated[
+        tuple[str, ...],
+        Field(description="Ids of the shared workarounds this variant applies, in order."),
+    ]
+
+
+class WorkaroundInfo(StrictModel):
+    """One preprocessing step shared across adapters, explained once."""
+
+    id: Annotated[
+        str, Field(description="Stable identifier that Variant.workaround_ids refers to.")
+    ]
+    name: Annotated[str, Field(description="Short display name.")]
+    explanation: Annotated[
+        str,
+        Field(
+            description=(
+                "What the step does to a polygon, and why it helps a planar library. Paragraphs "
+                "are separated by a blank line."
+            )
+        ),
     ]
 
 
@@ -268,8 +304,8 @@ class ResultsFile(StrictModel):
     """The whole precomputed results file the front end loads."""
 
     schema_version: Annotated[
-        Literal[3], Field(description="Bumped whenever this file's shape changes.")
-    ] = 3
+        Literal[4], Field(description="Bumped whenever this file's shape changes.")
+    ] = 4
     generated_at: Annotated[datetime, Field(description="When the run was made, in UTC.")]
     grid: GridConfig
     points: Annotated[
@@ -284,7 +320,24 @@ class ResultsFile(StrictModel):
     variants: Annotated[
         dict[str, tuple[Variant, ...]], Field(description="Variants keyed by system id.")
     ]
+    workarounds: Annotated[
+        tuple[WorkaroundInfo, ...],
+        Field(description="The shared workarounds that variants refer to by id."),
+    ]
     results: Annotated[
         tuple[CombinationResult, ...],
         Field(description="One entry per polygon x system x variant combination."),
     ]
+
+    @model_validator(mode="after")
+    def _check_workaround_ids(self) -> Self:
+        known = {workaround.id for workaround in self.workarounds}
+        for system_id, system_variants in self.variants.items():
+            for variant in system_variants:
+                unknown = set(variant.workaround_ids) - known
+                if unknown:
+                    raise ValueError(
+                        f"Variant {system_id}/{variant.id} names unknown workarounds: "
+                        f"{sorted(unknown)}"
+                    )
+        return self

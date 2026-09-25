@@ -5,6 +5,8 @@
  * wording rather than drifting from it.
  */
 
+import type { BaseType, Selection } from "d3-selection";
+
 import type { LayerId } from "./map";
 
 const REFERENCE_ONLY =
@@ -50,4 +52,55 @@ export const LAYER_HELP: Record<LayerId, string> = {
  */
 export function layerHelp(layer: LayerId, toleranceDeg: number): string {
   return LAYER_HELP[layer].replace("{tolerance}", String(toleranceDeg));
+}
+
+/**
+ * Append a "?" button that opens a pop-up with help text.
+ *
+ * Used instead of a `title` tooltip, which browsers show late or not at all
+ * and never on touch screens. The native Popover API gives Escape and
+ * click-outside dismissal and focus handling with no library.
+ *
+ * @param parent - Where to append the button and its pop-up.
+ * @param id - A page-unique id for the pop-up.
+ * @param label - The button's accessible name.
+ * @param text - The help text.
+ */
+export function appendHelp<E extends BaseType>(
+  parent: Selection<E, unknown, null, undefined>,
+  id: string,
+  label: string,
+  text: string,
+): void {
+  const helpButton = parent
+    .append("button")
+    .attr("type", "button")
+    .attr("class", "help-button")
+    .attr("popovertarget", id)
+    .attr("aria-label", label)
+    .text("?");
+  const popover = parent
+    .append("div")
+    .attr("id", id)
+    .attr("popover", "")
+    .attr("class", "help-popover")
+    .text(text);
+
+  // CSS anchor positioning is not in every browser yet, so the pop-up is placed
+  // under its button by hand: once before it shows, then again once its real
+  // width is known, to keep it on screen.
+  const place = (): void => {
+    const anchor = helpButton.node();
+    const element = popover.node();
+    if (anchor === null || element === null) {
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    const gutter = 8;
+    const maxLeft = window.innerWidth - element.offsetWidth - gutter;
+    const left = Math.max(gutter, Math.min(rect.left, maxLeft));
+    element.style.top = `${String(rect.bottom + window.scrollY + 4)}px`;
+    element.style.left = `${String(left + window.scrollX)}px`;
+  };
+  popover.on("beforetoggle", place).on("toggle", place);
 }

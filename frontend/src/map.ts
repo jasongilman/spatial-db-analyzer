@@ -22,8 +22,9 @@ import land110m from "world-atlas/land-110m.json";
 import { codeAt, numberAt, requireAt } from "./arrays";
 import { GEOMETRY_COLORS, POINT_COLORS } from "./palette";
 import type { PointClass } from "./palette";
-import type { D3Geometry, D3Lines, Position } from "./geo";
+import type { D3Geometry, D3Lines, D3Points, Position } from "./geo";
 import { unitVector } from "./geo";
+import type { BBox } from "./generated/results";
 
 /** Which projection a map uses. */
 export type ProjectionKind = "orthographic" | "equirectangular";
@@ -58,6 +59,25 @@ export const LAYER_IDS = [
 /** One layer a map can draw. */
 export type LayerId = (typeof LAYER_IDS)[number];
 
+/**
+ * Extra geometry drawn over everything but the bounding boxes.
+ *
+ * The explanatory figures use these for what the detail view never shows: a
+ * second library geometry in its own color, a single edge, or a vertex list.
+ */
+export interface Overlay {
+  geometry: D3Geometry | D3Lines | D3Points;
+  stroke: string;
+  /** Fill for a polygon. Left out, the polygon is only stroked. */
+  fill?: string;
+  /** Canvas line dash, in pixels. Left out, the line is solid. */
+  dash?: number[];
+  /** Stroke width in pixels. Defaults to 1.6, the width of the polygon layers. */
+  lineWidth?: number;
+  /** Dot radius in pixels, for a MultiPoint. Defaults to 3. */
+  radius?: number;
+}
+
 /** What one map draws. */
 export interface Scene {
   /** The polygon as it really is, with great-circle edges. */
@@ -73,7 +93,27 @@ export interface Scene {
   center: Position;
   /** Which layers are drawn. The legend changes this in place, then calls {@link MapView.redraw}. */
   visible: Record<LayerId, boolean>;
+  /** Fill for the true polygon. Defaults to a faint grey, to sit under points. */
+  truthFill?: string;
+  /** Extra geometry, drawn in order over the points. */
+  overlays?: Overlay[];
+  /**
+   * A box the flat map fits instead of the whole sphere. Ignored by the globe,
+   * and it must not cross the antimeridian.
+   */
+  extent?: BBox;
 }
+
+/** How a map responds to the pointer. */
+export interface Interaction {
+  /** Wheel, double-click and pinch zoom, plus panning the flat map once zoomed. */
+  zoom: boolean;
+  /** Dragging the globe to rotate it. Ignored by the flat map. */
+  rotate: boolean;
+}
+
+/** The detail view's maps: everything on. */
+const FULL_INTERACTION: Interaction = { zoom: true, rotate: true };
 
 /** Most a map zooms in, as a multiple of its fitted scale. */
 export const MAX_ZOOM = 20;
@@ -155,12 +195,31 @@ function touchCount(event: Event): number {
   return "touches" in event ? (event as TouchEvent).touches.length : 0;
 }
 
+/**
+ * The corners of a box, for fitting a projection to it.
+ *
+ * @param box - The box, which must not cross the antimeridian.
+ * @returns Its four corners.
+ */
+function extentCorners(box: BBox): D3Points {
+  return {
+    type: "MultiPoint",
+    coordinates: [
+      [box.west, box.south],
+      [box.east, box.south],
+      [box.east, box.north],
+      [box.west, box.north],
+    ],
+  };
+}
+
 /** A map attached to a canvas, redrawn on demand. */
 export class MapView {
   private readonly canvas: HTMLCanvasElement;
   private readonly kind: ProjectionKind;
   private readonly projection: GeoProjection;
   private readonly zoomBehavior: ZoomBehavior<HTMLCanvasElement, unknown>;
+  private readonly interaction: Interaction;
   private readonly onViewChange: (moved: boolean) => void;
   private scene: Scene | null = null;
   private initialRotation: [number, number] = [0, 0];
@@ -174,18 +233,21 @@ export class MapView {
    * @param onViewChange - Called after every redraw with whether the view is
    *   zoomed or rotated away from where {@link setScene} put it, so the caller
    *   can show a reset control only when there is something to reset.
+   * @param interaction - Which pointer gestures the map answers to.
    */
   constructor(
     canvas: HTMLCanvasElement,
     kind: ProjectionKind,
     onViewChange: (moved: boolean) => void = () => undefined,
+    interaction: Interaction = FULL_INTERACTION,
   ) {
     this.canvas = canvas;
     this.kind = kind;
     this.onViewChange = onViewChange;
+    this.interaction = interaction;
     this.projection = kind === "orthographic" ? geoOrthographic() : geoEquirectangular();
     this.zoomBehavior = this.enableZoom();
-    if (kind === "orthographic") {
+    if (kind === "orthographic" && interaction.rotate) {
       this.enableDrag();
     }
   }
@@ -205,6 +267,13 @@ export class MapView {
   /** Undo any zoom, pan or rotation, and redraw. */
   resetView(): void {
     this.rotation = [...this.initialRotation];
+    if (!this.interaction.zoom) {
+      // The behavior was never attached to the canvas, so there is no zoom
+      // event to do the redraw.
+      this.transform = zoomIdentity;
+      this.render();
+      return;
+    }
     // Setting the transform through the behavior keeps d3-zoom's own record of
     // it in step. Its zoom event does the redraw.
     this.zoomBehavior.transform(select(this.canvas), zoomIdentity);
@@ -258,7 +327,11 @@ export class MapView {
       });
     }
 
-    select(this.canvas).call(behavior);
+    // Attaching the behavior also sets `touch-action: none`, which would stop a
+    // phone scrolling the page past a figure that can't zoom anyway.
+    if (this.interaction.zoom) {
+      select(this.canvas).call(behavior);
+    }
     return behavior;
   }
 
@@ -309,18 +382,19 @@ export class MapView {
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
 
-    this.configureProjection(width, height);
+    this.configureProjection(width, height, scene.extent);
     const path = geoPath(this.projection, context);
 
     this.drawBase(context, path, width, height);
     this.drawGeometry(context, path, scene);
     this.drawPoints(context, scene, width, height);
+    this.drawOverlays(context, path, scene.overlays ?? []);
     // Boxes go over the points: under them, a dotted line vanishes into the grid.
     this.drawBBoxes(context, path, scene);
     this.onViewChange(this.isMoved());
   }
 
-  private configureProjection(width: number, height: number): void {
+  private configureProjection(width: number, height: number, extent: BBox | undefined): void {
     const k = this.transform.k;
     if (this.kind === "orthographic") {
       this.projection.rotate([this.rotation[0], this.rotation[1]]).fitExtent(
@@ -341,7 +415,7 @@ export class MapView {
         [2, 2],
         [width - 2, height - 2],
       ],
-      { type: "Sphere" },
+      extent === undefined ? { type: "Sphere" } : extentCorners(extent),
     );
     const fitted = this.projection.translate();
     this.projection
@@ -400,7 +474,7 @@ export class MapView {
     if (scene.visible.truth) {
       context.beginPath();
       path(scene.truth as unknown as GeoPermissibleObjects);
-      context.fillStyle = "rgba(17, 17, 17, 0.08)";
+      context.fillStyle = scene.truthFill ?? "rgba(17, 17, 17, 0.08)";
       context.fill();
       context.strokeStyle = GEOMETRY_COLORS.truth;
       context.lineWidth = 1.6;
@@ -415,6 +489,27 @@ export class MapView {
       context.strokeStyle = GEOMETRY_COLORS.submitted;
       context.lineWidth = 1.6;
       context.setLineDash([5, 4]);
+      context.stroke();
+      context.setLineDash([]);
+    }
+  }
+
+  private drawOverlays(
+    context: CanvasRenderingContext2D,
+    path: ReturnType<typeof geoPath>,
+    overlays: Overlay[],
+  ): void {
+    for (const overlay of overlays) {
+      path.pointRadius(overlay.radius ?? 3);
+      context.beginPath();
+      path(overlay.geometry as unknown as GeoPermissibleObjects);
+      if (overlay.fill !== undefined) {
+        context.fillStyle = overlay.fill;
+        context.fill();
+      }
+      context.strokeStyle = overlay.stroke;
+      context.lineWidth = overlay.lineWidth ?? 1.6;
+      context.setLineDash(overlay.dash ?? []);
       context.stroke();
       context.setLineDash([]);
     }

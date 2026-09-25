@@ -14,6 +14,8 @@ REFERENCE_VARIANT = Variant(
     name="Reference",
     description="Our own spherical implementation, shown as a control.",
     tradeoffs=("Scores 100% by definition; it is the yardstick, not a contender.",),
+    how_it_helps="Not a workaround. This is the ground truth every other column is scored against.",
+    workaround_ids=(),
 )
 
 REFERENCE_INFO = SystemInfo(
@@ -25,6 +27,11 @@ REFERENCE_INFO = SystemInfo(
         "The spherical implementation this project measures everything else against: containment "
         "by great-circle edge crossings, and exact spherical area. It is cross-checked against "
         "spherely on every grid point in the test suite."
+    ),
+    limitations=(),
+    docs_url=(
+        "https://github.com/jasongilman/spatial-db-analyzer/blob/main/src/spatial_db_analyzer/"
+        "reference.py"
     ),
 )
 

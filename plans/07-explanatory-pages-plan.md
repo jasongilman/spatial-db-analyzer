@@ -1,6 +1,6 @@
 # Explanatory Pages Plan: Intro and Libraries
 
-> **Status: not started.** Third of three review-driven plans, after
+> **Status: complete.** Third of three review-driven plans, after
 > [05-clarity-fixes-plan.md](05-clarity-fixes-plan.md) and
 > [06-map-interaction-plan.md](06-map-interaction-plan.md). It reuses 06's help text and map
 > renderer.
@@ -29,8 +29,14 @@ therefore has **two checkpoints**: one after B, and one after C.
 
 ## Decisions to confirm before starting
 
-1. *Proposed:* separate linked pages, as laid out in section A.
-2. *Proposed:* per-system and per-variant prose lives in the Python models (section C).
+1. *Confirmed:* separate linked pages, as laid out in section A.
+2. *Confirmed:* per-system and per-variant prose lives in the Python models (section C).
+3. *Confirmed:* the densification figure uses `wide`'s top edge, not `normal`'s, and draws the
+   densified vertices as dots. On `normal`'s 20° edge the arc bows only about 0.4° from the chord,
+   and a 1°-step polyline sits within about 0.001° of the arc, so the lines would overlap.
+4. *Confirmed:* no stop at checkpoint 1. Build B and C, then report once for both reviews.
+5. *Decided in implementation:* spherely `oriented` is a library flag, not a shared workaround in
+   `workarounds.py`, so it gets no `WorkaroundInfo`. Its explanation lives in the spherely section.
 
 ## A. Where it lives
 

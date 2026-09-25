@@ -8,7 +8,7 @@
 /**
  * Bumped whenever this file's shape changes.
  */
-export type SchemaVersion = 3;
+export type SchemaVersion = 4;
 /**
  * When the run was made, in UTC.
  */
@@ -98,6 +98,14 @@ export type Semantics = "planar" | "spherical";
  * Short explanation of what this library is for.
  */
 export type Notes = string;
+/**
+ * What this library gets wrong with geodetic data, one short statement each. Empty only for the reference control.
+ */
+export type Limitations = string[];
+/**
+ * Link to the library's own documentation.
+ */
+export type DocsUrl = string;
 export type Systems = SystemInfo[];
 /**
  * Stable identifier, unique within its system.
@@ -115,6 +123,30 @@ export type Description1 = string;
  * What the workaround costs. The real lesson of the detail view.
  */
 export type Tradeoffs = string[];
+/**
+ * Which of the system's limitations this variant addresses, and how.
+ */
+export type HowItHelps = string;
+/**
+ * Ids of the shared workarounds this variant applies, in order.
+ */
+export type WorkaroundIds = string[];
+/**
+ * Stable identifier that Variant.workaround_ids refers to.
+ */
+export type Id3 = string;
+/**
+ * Short display name.
+ */
+export type Name3 = string;
+/**
+ * What the step does to a polygon, and why it helps a planar library. Paragraphs are separated by a blank line.
+ */
+export type Explanation = string;
+/**
+ * The shared workarounds that variants refer to by id.
+ */
+export type Workarounds = WorkaroundInfo[];
 export type PolygonId = string;
 export type SystemId = string;
 export type VariantId = string;
@@ -188,6 +220,7 @@ export interface ResultsFile {
   reference: Reference;
   systems: Systems;
   variants: Variants;
+  workarounds: Workarounds;
   results: Results;
 }
 /**
@@ -262,6 +295,8 @@ export interface SystemInfo {
   version: Version;
   semantics: Semantics;
   notes: Notes;
+  limitations: Limitations;
+  docs_url: DocsUrl;
 }
 /**
  * Variants keyed by system id.
@@ -277,6 +312,16 @@ export interface Variant {
   name: Name2;
   description: Description1;
   tradeoffs: Tradeoffs;
+  how_it_helps: HowItHelps;
+  workaround_ids: WorkaroundIds;
+}
+/**
+ * One preprocessing step shared across adapters, explained once.
+ */
+export interface WorkaroundInfo {
+  id: Id3;
+  name: Name3;
+  explanation: Explanation;
 }
 /**
  * What one system's one variant did with one polygon.

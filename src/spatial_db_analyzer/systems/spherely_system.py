@@ -25,6 +25,13 @@ DEFAULT = Variant(
         "Always assumes the smaller of the two candidate polygons.",
         "Cannot represent a polygon larger than a hemisphere.",
     ),
+    how_it_helps=(
+        "No preprocessing is needed for edges, the antimeridian or the poles, because S2 already "
+        "gets them right. A ring on a sphere bounds two regions, though, and without winding "
+        "there is nothing to say which one was meant, so S2 takes the smaller. That is right only "
+        "while the polygon is smaller than a hemisphere."
+    ),
+    workaround_ids=(),
 )
 
 ORIENTED = Variant(
@@ -32,6 +39,11 @@ ORIENTED = Variant(
     name="Oriented",
     description="Winding order honored (`oriented=True`).",
     tradeoffs=("The caller must guarantee correct ring orientation; spherely won't check.",),
+    how_it_helps=(
+        "Tells S2 to trust the winding: the interior is the region on the ring's left, even when "
+        "that is most of the globe. That is what `both_poles` needs."
+    ),
+    workaround_ids=(),
 )
 
 
@@ -49,6 +61,17 @@ class SpherelySystem:
             "than special cases. Whether it reads them the way you meant depends entirely on the "
             "`oriented` flag."
         ),
+        limitations=(
+            (
+                "By default it ignores winding order and takes the smaller of the two regions a "
+                "ring bounds, so it can't represent a polygon larger than a hemisphere."
+            ),
+            (
+                "With `oriented=True` it trusts winding completely. A ring wound the wrong way "
+                "silently becomes its complement."
+            ),
+        ),
+        docs_url="https://spherely.readthedocs.io/",
     )
 
     variants = (DEFAULT, ORIENTED)

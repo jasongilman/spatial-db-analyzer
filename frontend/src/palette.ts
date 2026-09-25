@@ -87,6 +87,12 @@ export const GEOMETRY_COLORS = {
   truth: "#111111",
   /** What the library was actually handed after any workaround. */
   submitted: "#009E73",
+  /**
+   * A second library geometry in an explanatory figure, set against `submitted`:
+   * the densified edge, or the other half of a split polygon. Never on a map
+   * with points, where this blue means "correct: inside".
+   */
+  alternate: "#0072B2",
   graticule: "#E4E4E4",
   land: "#F2F0EB",
   landStroke: "#DCD8D0",

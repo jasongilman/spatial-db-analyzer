@@ -35,6 +35,7 @@ from spatial_db_analyzer.systems import (
 )
 from spatial_db_analyzer.systems.base import SystemEvaluation
 from spatial_db_analyzer.test_polygons import ALL_TEST_POLYGONS
+from spatial_db_analyzer.workarounds import ALL_WORKAROUNDS
 
 COORDINATE_DECIMALS = 5
 """Coordinates are rounded to this many places on the way into the results file."""
@@ -319,7 +320,7 @@ def run(
     )
 
     return ResultsFile(
-        schema_version=3,
+        schema_version=4,
         generated_at=datetime.now(UTC),
         grid=config,
         points=points,
@@ -327,5 +328,6 @@ def run(
         reference=reference,
         systems=system_infos,
         variants=variants,
+        workarounds=ALL_WORKAROUNDS,
         results=tuple(results),
     )

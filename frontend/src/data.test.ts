@@ -47,7 +47,7 @@ function result(overrides: Partial<CombinationResult> = {}): CombinationResult {
 }
 
 const file: ResultsFile = {
-  schema_version: 3,
+  schema_version: 4,
   generated_at: "2026-09-20T12:00:00Z",
   grid: { point_count: 3, region: null, edge_tolerance_deg: 0.25 },
   points: [
@@ -74,6 +74,8 @@ const file: ResultsFile = {
       version: "2.1.2",
       semantics: "planar",
       notes: "Planar.",
+      limitations: [],
+      docs_url: "https://example.com/",
     },
     {
       id: "spherely",
@@ -81,12 +83,33 @@ const file: ResultsFile = {
       version: "0.1.1",
       semantics: "spherical",
       notes: "Spherical.",
+      limitations: [],
+      docs_url: "https://example.com/",
     },
   ],
   variants: {
-    shapely: [{ id: "raw", name: "Raw", description: "As-is.", tradeoffs: ["Wrong."] }],
-    spherely: [{ id: "oriented", name: "Oriented", description: "Honors winding.", tradeoffs: [] }],
+    shapely: [
+      {
+        id: "raw",
+        name: "Raw",
+        description: "As-is.",
+        tradeoffs: ["Wrong."],
+        how_it_helps: "",
+        workaround_ids: [],
+      },
+    ],
+    spherely: [
+      {
+        id: "oriented",
+        name: "Oriented",
+        description: "Honors winding.",
+        tradeoffs: [],
+        how_it_helps: "",
+        workaround_ids: [],
+      },
+    ],
   },
+  workarounds: [],
   results: [result(), result({ system_id: "spherely", variant_id: "oriented" })],
 };
 

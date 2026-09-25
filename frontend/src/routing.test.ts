@@ -27,6 +27,26 @@ describe("parseRoute", () => {
     expect(parseRoute("#/nonsense")).toEqual({ kind: "summary" });
     expect(parseRoute("#/combo/too/few")).toEqual({ kind: "summary" });
     expect(parseRoute("#/combo/a/b/c/d")).toEqual({ kind: "summary" });
+    expect(parseRoute("#/how-it-works/a/b")).toEqual({ kind: "summary" });
+    expect(parseRoute("#/libraries/a/b")).toEqual({ kind: "summary" });
+    expect(parseRoute("#/libraries/fixes/a/b")).toEqual({ kind: "summary" });
+  });
+
+  it("reads the how-it-works page, with or without a section", () => {
+    expect(parseRoute("#/how-it-works")).toEqual({ kind: "how-it-works" });
+    expect(parseRoute("#/how-it-works/outcomes")).toEqual({
+      kind: "how-it-works",
+      sectionId: "outcomes",
+    });
+  });
+
+  it("reads the libraries page, a system on it, or a workaround on it", () => {
+    expect(parseRoute("#/libraries")).toEqual({ kind: "libraries" });
+    expect(parseRoute("#/libraries/shapely")).toEqual({ kind: "libraries", systemId: "shapely" });
+    expect(parseRoute("#/libraries/fixes/densify")).toEqual({
+      kind: "libraries",
+      workaroundId: "densify",
+    });
   });
 });
 
@@ -54,6 +74,19 @@ describe("formatRoute", () => {
       variantId: "densified_fix",
     } as const;
     expect(parseRoute(formatRoute(route))).toEqual(route);
+  });
+
+  it("round-trips every page route through parseRoute", () => {
+    const routes = [
+      { kind: "how-it-works" },
+      { kind: "how-it-works", sectionId: "outcomes" },
+      { kind: "libraries" },
+      { kind: "libraries", systemId: "duckdb_spatial" },
+      { kind: "libraries", workaroundId: "antimeridian" },
+    ] as const;
+    for (const route of routes) {
+      expect(parseRoute(formatRoute(route))).toEqual(route);
+    }
   });
 
   it("encodes ids that would otherwise break the path", () => {

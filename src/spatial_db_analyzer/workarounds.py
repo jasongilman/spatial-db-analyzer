@@ -25,11 +25,49 @@ from spatial_db_analyzer.models import (
     GeoJsonMultiPolygon,
     GeoJsonPolygon,
     LonLat,
+    WorkaroundInfo,
 )
 from spatial_db_analyzer.spherical import interpolate_great_circle, ring_to_xyz, xyz_to_lonlat
 
 DEFAULT_DENSIFY_STEP_DEG = 1.0
 """Largest gap, in degrees, between vertices added along an edge."""
+
+DENSIFY_INFO = WorkaroundInfo(
+    id="densify",
+    name="Great-circle densification",
+    explanation=(
+        "A planar library joins two vertices with a straight line in longitude and latitude, but "
+        "the real edge is the great-circle arc between them, which bows toward the nearer pole. "
+        "Points between the chord and the arc get the wrong answer. Densifying adds a vertex "
+        "every 1 degree along the arc, so the library draws many short chords that hug the curve "
+        "instead of one long chord that cuts the corner. The error left over shrinks roughly with "
+        "the square of the step, so halving the step cuts it by about four, at the cost of many "
+        "more vertices to store and test. On its own it does nothing about the antimeridian or "
+        "the poles, so this project always follows it with the antimeridian fix."
+    ),
+)
+
+ANTIMERIDIAN_INFO = WorkaroundInfo(
+    id="antimeridian",
+    name="Antimeridian fix",
+    explanation=(
+        "A planar library reads a ring from 160 to -160 degrees as running the long way around, "
+        "west across 320 degrees of longitude, instead of 40 degrees east across +/-180. The "
+        "`antimeridian` package splits such a polygon at +/-180 into a MultiPolygon with one part "
+        "on each side. It finds where each edge crosses +/-180 along the great circle, but every "
+        "edge stays a straight line, so it does nothing for a polygon with long edges."
+        "\n\n"
+        "The same package also handles a polygon that contains a pole. A ring around a pole has "
+        "no inside on a flat map until it is closed, so the package closes it along +/-90 "
+        "latitude, which turns a polar cap into a band across the top or bottom of the map."
+        "\n\n"
+        "By default it also rewinds rings (`fix_winding=True`), which reinterprets which side is "
+        "the interior: a ring meant to cover 88% of the globe becomes the 12% box inside it."
+    ),
+)
+
+ALL_WORKAROUNDS = (DENSIFY_INFO, ANTIMERIDIAN_INFO)
+"""Every shared workaround, in the order the libraries page explains them."""
 
 
 def _clamp(lon: float, lat: float) -> LonLat:

@@ -44,7 +44,7 @@ function result(overrides: Partial<CombinationResult> = {}): CombinationResult {
 
 // Point 0 is inside by the reference, point 1 outside, point 2 too close to score.
 const file: ResultsFile = {
-  schema_version: 3,
+  schema_version: 4,
   generated_at: "2026-09-20T12:00:00Z",
   grid: { point_count: 3, region: null, edge_tolerance_deg: 0.25 },
   points: [
@@ -65,14 +65,31 @@ const file: ResultsFile = {
       version: "2.1.2",
       semantics: "planar",
       notes: "Planar.",
+      limitations: [],
+      docs_url: "https://example.com/",
     },
   ],
   variants: {
     shapely: [
-      { id: "raw", name: "Raw", description: "As-is.", tradeoffs: [] },
-      { id: "fixed", name: "Fixed", description: "Preprocessed.", tradeoffs: [] },
+      {
+        id: "raw",
+        name: "Raw",
+        description: "As-is.",
+        tradeoffs: [],
+        how_it_helps: "",
+        workaround_ids: [],
+      },
+      {
+        id: "fixed",
+        name: "Fixed",
+        description: "Preprocessed.",
+        tradeoffs: [],
+        how_it_helps: "",
+        workaround_ids: [],
+      },
     ],
   },
+  workarounds: [],
   results: [
     result(),
     result({

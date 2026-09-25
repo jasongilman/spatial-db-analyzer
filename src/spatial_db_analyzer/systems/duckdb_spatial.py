@@ -23,6 +23,11 @@ RAW = Variant(
     name="Raw input",
     description="The polygon as-is, with no preprocessing.",
     tradeoffs=("Nothing to remember, but geodetic cases are wrong.",),
+    how_it_helps=(
+        "It doesn't. The polygon goes in untouched, so this column shows the library's "
+        "limitations exactly as they are."
+    ),
+    workaround_ids=(),
 )
 
 ANTIMERIDIAN_FIX = Variant(
@@ -40,6 +45,13 @@ ANTIMERIDIAN_FIX = Variant(
         ),
         "The caller has to know to do this.",
     ),
+    how_it_helps=(
+        "Addresses the antimeridian and the poles. A ring that crosses +/-180 is split there, so "
+        "the library reads it the short way around, and a ring around a pole is closed along "
+        "+/-90 latitude, so it encloses the cap. Edges stay straight, so a polygon with long "
+        "edges, such as `wide`, is still wrong."
+    ),
+    workaround_ids=("antimeridian",),
 )
 
 GRID_DIGEST_BYTES = 16
@@ -73,6 +85,13 @@ DENSIFIED_FIX = Variant(
         "Far more vertices to store and test.",
         "Still wrong if you forget it.",
     ),
+    how_it_helps=(
+        "Addresses all three edge problems. Densifying replaces each long straight edge with "
+        "1-degree steps along its great circle, so the library's straight lines hug the true arc. "
+        "The antimeridian fix then handles +/-180 and the poles. It can't help `both_poles`, "
+        "whose interior is chosen by winding order, which a planar library ignores."
+    ),
+    workaround_ids=("densify", "antimeridian"),
 )
 
 
@@ -96,6 +115,26 @@ class DuckDbSpatialSystem:
             "`geography` extension built on S2, which is spherical; that one is not part of this "
             "phase."
         ),
+        limitations=(
+            (
+                "Edges are straight lines in longitude and latitude, not great-circle arcs, so a "
+                "long edge cuts across the true boundary."
+            ),
+            (
+                "Longitude doesn't wrap. A ring that crosses +/-180 is read as running the long "
+                "way around the map."
+            ),
+            (
+                "There are no poles. A ring around a pole encloses nothing on a flat plane, so the "
+                "polygon is invalid or covers the wrong area."
+            ),
+            (
+                "Winding order doesn't choose the interior. A ring always bounds the region inside "
+                "it on the plane, so a polygon meant as everything outside the ring can't be "
+                "expressed."
+            ),
+        ),
+        docs_url="https://duckdb.org/docs/stable/core_extensions/spatial/overview",
     )
 
     variants = (RAW, ANTIMERIDIAN_FIX, DENSIFIED_FIX)

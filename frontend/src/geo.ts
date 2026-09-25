@@ -5,6 +5,9 @@
  * disagree about conventions that matter enormously for this project's data.
  */
 
+import { geoArea } from "d3-geo";
+import type { GeoPermissibleObjects } from "d3-geo";
+
 import { requireAt } from "./arrays";
 import type { BBox, GeoJsonMultiPolygon, GeoJsonPolygon } from "./generated/results";
 
@@ -236,6 +239,12 @@ export function unitVector(lon: number, lat: number): [number, number, number] {
   return [cosLat * Math.cos(lonRad), cosLat * Math.sin(lonRad), Math.sin(latRad)];
 }
 
+/** Positions to draw as dots, in the shape d3-geo accepts. */
+export interface D3Points {
+  type: "MultiPoint";
+  coordinates: Position[];
+}
+
 /** Lines to stroke, in the shape d3-geo accepts. Never filled, so winding cannot go wrong. */
 export interface D3Lines {
   type: "MultiLineString";
@@ -298,4 +307,87 @@ export function bboxOutline(box: BBox): D3Lines {
     lines.push(lats.map((lat) => [east, lat]));
   }
   return { type: "MultiLineString", coordinates: lines };
+}
+
+/**
+ * The same polygon with its ring reversed, so it encloses the other side.
+ *
+ * Under the GeoJSON rule the interior is on the ring's left, so reversing a
+ * ring swaps a polygon for its complement on the sphere. The intro page uses
+ * this to draw what a library that ignores winding builds.
+ *
+ * @param polygon - The polygon to reverse.
+ * @returns The complementary polygon.
+ */
+export function reversePolygon(polygon: GeoJsonPolygon): GeoJsonPolygon {
+  return { type: "Polygon", coordinates: [[...polygon.coordinates[0]].reverse()] };
+}
+
+/**
+ * The number of distinct vertices in a geometry, across every ring.
+ *
+ * @param geometry - The geometry to count.
+ * @returns The vertex count, not counting each ring's closing repeat.
+ */
+export function vertexCount(geometry: Geometry): number {
+  return ringsOf(geometry).reduce((total, ring) => total + ring.length - 1, 0);
+}
+
+/**
+ * Index of the ring position nearest a target, by plain lon/lat distance.
+ *
+ * @param ring - The ring to search.
+ * @param target - The position to look for.
+ * @returns The index of the nearest position.
+ */
+function nearestIndex(ring: Position[], target: Position): number {
+  let best = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  ring.forEach(([lon, lat], index) => {
+    const distance = Math.hypot(lon - target[0], lat - target[1]);
+    if (distance < bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  });
+  return best;
+}
+
+/**
+ * The stretch of a ring from one vertex to another, walking forward.
+ *
+ * Finds the positions nearest `start` and `end` rather than exact matches,
+ * because a ring that went through a workaround carries floating-point drift.
+ * Used to pull one original edge, with every vertex densifying added to it, out
+ * of a densified ring.
+ *
+ * @param ring - A closed ring.
+ * @param start - Where the stretch begins.
+ * @param end - Where it ends.
+ * @returns The positions from start to end, both included.
+ */
+export function ringStretch(ring: Position[], start: Position, end: Position): Position[] {
+  // The closing position repeats the first, so it is left out of the walk.
+  const open = ring.slice(0, -1);
+  const from = nearestIndex(open, start);
+  const to = nearestIndex(open, end);
+  const stretch: Position[] = [];
+  for (let offset = 0; offset < open.length; offset += 1) {
+    const index = (from + offset) % open.length;
+    stretch.push(requireAt(open, index));
+    if (index === to) {
+      break;
+    }
+  }
+  return stretch;
+}
+
+/**
+ * The share of the sphere a geometry covers, as d3 draws it.
+ *
+ * @param geometry - A geometry already wound for d3.
+ * @returns A fraction from 0 to 1.
+ */
+export function sphereFraction(geometry: D3Geometry): number {
+  return geoArea(geometry as unknown as GeoPermissibleObjects) / (4 * Math.PI);
 }

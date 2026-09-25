@@ -95,6 +95,9 @@ A test combination is one polygon, run against one system, with or without a wor
 * **Pages:**
   1. A summary matrix of polygons × systems, colored by outcome.
   2. A detail view for one combination: the polygon, the grid points colored correct / false positive / false negative, the workaround notes, and error messages.
+  3. "How it works" (`#/how-it-works`): the concepts (great-circle edges, poles, the antimeridian, winding order, planar vs spherical), how a combination is scored, and what each outcome means, each with a figure drawn from the results file.
+  4. "Libraries & fixes" (`#/libraries`, `#/libraries/{systemId}`): each library's limitations and variants, with each variant's outcome strip, then the shared workarounds explained once. Per-system and per-variant prose lives on the Python adapters (`SystemInfo.limitations`, `Variant.how_it_helps`, `WorkaroundInfo`), so a new system can't be added without it.
+* A nav bar on every page links Results · How it works · Libraries & fixes.
 * The front end reads precomputed result JSON produced by the Python backend.
 
 ## Code Standards

@@ -14,7 +14,7 @@ import type { Dataset } from "./data";
 import { bboxOutline, ringCentroid, ringsOf, toD3Geometry, toDrawableSubmitted } from "./geo";
 import type { D3Lines, Position } from "./geo";
 import type { BBox } from "./generated/results";
-import { layerHelp } from "./help";
+import { appendHelp, layerHelp } from "./help";
 import { MapView } from "./map";
 import type { ClassifiedPoints, LayerId, Scene } from "./map";
 import { LAYER_IDS, POINT_CLASS_ORDER } from "./map";
@@ -33,7 +33,8 @@ import { requireAt } from "./arrays";
 
 type Block<E extends BaseType> = Selection<E, unknown, null, undefined>;
 
-const LAYER_LABELS: Record<LayerId, string> = {
+/** Short names for each map layer, shared with the intro page's color key. */
+export const LAYER_LABELS: Record<LayerId, string> = {
   truth: "The polygon as it really is (great-circle edges)",
   submitted: "What the library was handed, as the library sees it",
   libraryBBox: "Bounding box the library reported",
@@ -401,43 +402,16 @@ function appendLegendEntry<E extends BaseType>(
     button.attr("aria-pressed", String(onToggle(layer)));
   });
 
-  // The native Popover API gives Escape and click-outside dismissal and focus
-  // handling with no library.
-  const popoverId = `help-${layer}`;
-  const helpButton = entry
-    .append("button")
-    .attr("type", "button")
-    .attr("class", "help-button")
-    .attr("popovertarget", popoverId)
-    .attr("aria-label", `About: ${LAYER_LABELS[layer]}`)
-    .text("?");
-  const popover = entry
-    .append("div")
-    .attr("id", popoverId)
-    .attr("popover", "")
-    .attr("class", "help-popover")
-    .text(help);
-
-  // CSS anchor positioning is not in every browser yet, so the pop-up is placed
-  // under its button by hand: once before it shows, then again once its real
-  // width is known, to keep it on screen.
-  const place = (): void => {
-    const anchor = helpButton.node();
-    const element = popover.node();
-    if (anchor === null || element === null) {
-      return;
-    }
-    const rect = anchor.getBoundingClientRect();
-    const gutter = 8;
-    const maxLeft = window.innerWidth - element.offsetWidth - gutter;
-    const left = Math.max(gutter, Math.min(rect.left, maxLeft));
-    element.style.top = `${String(rect.bottom + window.scrollY + 4)}px`;
-    element.style.left = `${String(left + window.scrollX)}px`;
-  };
-  popover.on("beforetoggle", place).on("toggle", place);
+  appendHelp(entry, `help-${layer}`, `About: ${LAYER_LABELS[layer]}`, help);
 }
 
-function appendSwatch<E extends BaseType>(button: Block<E>, layer: LayerId): void {
+/**
+ * Append the key for one layer: a line for a geometry, a dot for a point class.
+ *
+ * @param button - Where to append it.
+ * @param layer - The layer it stands for.
+ */
+export function appendSwatch<E extends BaseType>(button: Block<E>, layer: LayerId): void {
   switch (layer) {
     case "truth":
       button.append("span").attr("class", "line line-truth");
@@ -507,6 +481,11 @@ function renderSidePanel<E extends BaseType>(
 
   panel.append("h3").text("About this library");
   panel.append("p").attr("class", "muted").text(system.notes);
+  panel
+    .append("p")
+    .append("a")
+    .attr("href", formatRoute({ kind: "libraries", systemId: system.id }))
+    .text(`How ${system.name} works and what each fix does →`);
 
   if (answered) {
     renderErrors(panel, result.validation_errors, result.error_message);

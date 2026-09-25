@@ -21,6 +21,11 @@ RAW = Variant(
     name="Raw input",
     description="The polygon as-is, with no preprocessing.",
     tradeoffs=("Nothing to remember, but geodetic cases are wrong.",),
+    how_it_helps=(
+        "It doesn't. The polygon goes in untouched, so this column shows the library's "
+        "limitations exactly as they are."
+    ),
+    workaround_ids=(),
 )
 
 ANTIMERIDIAN_FIX = Variant(
@@ -38,6 +43,13 @@ ANTIMERIDIAN_FIX = Variant(
         ),
         "The caller has to know to do this.",
     ),
+    how_it_helps=(
+        "Addresses the antimeridian and the poles. A ring that crosses +/-180 is split there, so "
+        "the library reads it the short way around, and a ring around a pole is closed along "
+        "+/-90 latitude, so it encloses the cap. Edges stay straight, so a polygon with long "
+        "edges, such as `wide`, is still wrong."
+    ),
+    workaround_ids=("antimeridian",),
 )
 
 ANTIMERIDIAN_FIX_REWOUND = Variant(
@@ -51,6 +63,12 @@ ANTIMERIDIAN_FIX_REWOUND = Variant(
         ),
         "This is the library's default, so it is what you get if you never think about winding.",
     ),
+    how_it_helps=(
+        "The same split and pole closing as the antimeridian fix. The package also rewinds each "
+        "ring to the orientation a planar library expects, which doesn't change what a planar "
+        "library reads but does throw away the only record of which side was meant to be inside."
+    ),
+    workaround_ids=("antimeridian",),
 )
 
 DENSIFIED_FIX = Variant(
@@ -64,6 +82,13 @@ DENSIFIED_FIX = Variant(
         "Far more vertices to store and test.",
         "Still wrong if you forget it.",
     ),
+    how_it_helps=(
+        "Addresses all three edge problems. Densifying replaces each long straight edge with "
+        "1-degree steps along its great circle, so the library's straight lines hug the true arc. "
+        "The antimeridian fix then handles +/-180 and the poles. It can't help `both_poles`, "
+        "whose interior is chosen by winding order, which a planar library ignores."
+    ),
+    workaround_ids=("densify", "antimeridian"),
 )
 
 
@@ -81,6 +106,28 @@ class ShapelySystem:
             "cannot represent a great-circle edge, the antimeridian wrapping around, or a "
             "polygon that contains a pole."
         ),
+        limitations=(
+            (
+                "Edges are straight lines in longitude and latitude, not great-circle arcs, so a "
+                "long edge cuts across the true boundary."
+            ),
+            (
+                "Longitude doesn't wrap. A ring that crosses +/-180 is read as running the long "
+                "way around the map."
+            ),
+            (
+                "There are no poles. A ring around a pole encloses nothing on a flat plane, so the "
+                "polygon is invalid or covers the wrong area."
+            ),
+            (
+                "Winding order doesn't choose the interior. A ring always bounds the region inside "
+                "it on the plane, so a polygon meant as everything outside the ring can't be "
+                "expressed."
+                " `orient()` fixes winding by planar signed area, which can disagree with the "
+                "geodetic intent."
+            ),
+        ),
+        docs_url="https://shapely.readthedocs.io/",
     )
 
     variants = (RAW, ANTIMERIDIAN_FIX, ANTIMERIDIAN_FIX_REWOUND, DENSIFIED_FIX)
