@@ -1,5 +1,29 @@
 # Phase 1 Plan
 
+> **Status: complete** (verified 2026-09-25 on `phase-1-implementation`). Every exit criterion
+> below passes: `scripts/lint.sh`, `scripts/test.sh` (116 pytest, 62 vitest, including
+> `test_reference_matches_spherely`), `scripts/generate_results.sh` (a fresh run reproduces the
+> committed `results.json` for all 60 combinations, excluding timings), `npm run build`, and
+> `npm run dev`. All nine steps are done, and both cut-line items were kept (`expected_bbox`
+> and the links to sibling variants). Findings are in
+> [03-phase-1-findings.md](03-phase-1-findings.md), and the code review and its fixes are in
+> [04-phase-1-code-review-findings.md](04-phase-1-code-review-findings.md).
+>
+> **Where the build departs from this plan:**
+>
+> * **`schema_version` is 2, not 1**, and `CombinationResult.outcome` has a fifth value,
+>   `no_data`, used when no grid point could be scored (code review finding 1). `data.ts`
+>   rejects any other schema version.
+> * **The generated TypeScript types are used, not hand-written.** Pydantic's `prefixItems` did
+>   come back as `unknown`, as the Risks section warned. `scripts/schema_for_typescript.py`
+>   rewrites them to draft-07 tuples before generation.
+> * **Files the layout doesn't list:** `systems/reference_system.py` (metadata for the control
+>   column), `scripts/npm_guard.sh` (the nvm `PATH` guard), `scripts/run_frontend.sh`, and
+>   `frontend/src/{routing,palette,arrays}.ts`, which split pure functions out so they can be
+>   unit tested.
+> * **One DOM-free test beyond what Step 8 lists:** `detail.test.ts` covers `classifyPoints`
+>   (code review finding 6).
+
 This plan builds the first end-to-end slice: precomputed results for in-process libraries, shown on a static website that runs locally. There is no deployment and no runtime backend in this phase.
 
 **This document is written to be implemented without any other context.** Everything needed is either here or in the two appendices at the end. [00-initial-project-description.md](00-initial-project-description.md) gives the background and motivation, and [01-design-decisions.md](01-design-decisions.md) records the decisions and the parking lot, but neither is required reading to do the work.
