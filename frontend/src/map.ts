@@ -267,8 +267,12 @@ export class MapView {
     let startRotation: [number, number] = [0, 0];
 
     const behavior = drag<HTMLCanvasElement, unknown>()
-      // A second finger belongs to the pinch zoom, not to a rotation.
-      .filter((event: Event) => touchCount(event) <= 1)
+      // Keep d3-drag's default filter (primary button, no ctrl-click), and leave
+      // a second finger to the pinch zoom rather than a rotation.
+      .filter(
+        (event: MouseEvent | TouchEvent) =>
+          !event.ctrlKey && !("button" in event && event.button) && touchCount(event) <= 1,
+      )
       .on("start", (event: { x: number; y: number }) => {
         start = [event.x, event.y];
         startRotation = [...this.rotation];
