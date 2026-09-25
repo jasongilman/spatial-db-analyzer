@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bboxOutline,
   densifyPlanar,
   orientPlanarForD3,
   planarSignedArea,
@@ -13,6 +14,7 @@ import {
   unitVector,
 } from "./geo";
 import type { Position } from "./geo";
+import { requireAt } from "./arrays";
 import type { GeoJsonMultiPolygon, GeoJsonPolygon } from "./generated/results";
 
 const SQUARE: Position[] = [
@@ -244,5 +246,54 @@ describe("unitVector", () => {
   it("returns unit length", () => {
     const [x, y, z] = unitVector(123, -45);
     expect(Math.hypot(x, y, z)).toBeCloseTo(1, 12);
+  });
+});
+
+describe("bboxOutline", () => {
+  it("draws a normal box as four edges, with the parallels densified", () => {
+    const outline = bboxOutline({ west: -110, south: 30, east: -90, north: 45.44 });
+    expect(outline.type).toBe("MultiLineString");
+    expect(outline.coordinates).toHaveLength(4);
+
+    const [top, bottom] = outline.coordinates;
+    // 20° of longitude at 1° steps: 21 positions, all on the parallel.
+    expect(top).toHaveLength(21);
+    expect(top?.every(([, lat]) => lat === 45.44)).toBe(true);
+    expect(bottom?.every(([, lat]) => lat === 30)).toBe(true);
+    expect(top?.[0]).toEqual([-110, 45.44]);
+    expect(top?.[20]).toEqual([-90, 45.44]);
+  });
+
+  it("runs an antimeridian box east through 180, not back through 0", () => {
+    const outline = bboxOutline({ west: 160, south: -21.17, east: -160, north: 21.17 });
+    const top = outline.coordinates[0] ?? [];
+    const lons = top.map(([lon]) => lon);
+
+    expect(top).toHaveLength(41);
+    expect(lons).toContain(180);
+    expect(lons.every((lon) => Math.abs(lon) >= 160)).toBe(true);
+    // Every step is 1°, so no segment jumps across the map.
+    for (let index = 1; index < lons.length; index += 1) {
+      const step = ((requireAt(lons, index) - requireAt(lons, index - 1) + 540) % 360) - 180;
+      expect(step).toBeCloseTo(1);
+    }
+  });
+
+  it("leaves out the top edge of a box that reaches 90°N", () => {
+    const outline = bboxOutline({ west: -80, south: 50, east: 80, north: 90 });
+    expect(outline.coordinates).toHaveLength(3);
+    const lats = outline.coordinates.flatMap((line) => line.map(([, lat]) => lat));
+    // The meridian edges still reach the pole; only the parallel is gone.
+    expect(outline.coordinates.filter((line) => line.every(([, lat]) => lat === 90))).toEqual([]);
+    expect(lats).toContain(90);
+  });
+
+  it("draws no side edges for a box spanning every longitude", () => {
+    const outline = bboxOutline({ west: -180, south: -21, east: 180, north: 21 });
+    expect(outline.coordinates).toHaveLength(2);
+  });
+
+  it("draws nothing for a box covering the whole sphere", () => {
+    expect(bboxOutline({ west: -180, south: -90, east: 180, north: 90 }).coordinates).toEqual([]);
   });
 });

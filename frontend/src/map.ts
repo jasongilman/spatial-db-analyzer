@@ -13,6 +13,8 @@ import { geoEquirectangular, geoGraticule10, geoOrthographic, geoPath } from "d3
 import type { GeoPermissibleObjects, GeoProjection } from "d3-geo";
 import { drag } from "d3-drag";
 import { select } from "d3-selection";
+import { zoom, zoomIdentity } from "d3-zoom";
+import type { ZoomBehavior, ZoomTransform } from "d3-zoom";
 import { feature } from "topojson-client";
 import type { Topology } from "topojson-specification";
 import land110m from "world-atlas/land-110m.json";
@@ -20,7 +22,7 @@ import land110m from "world-atlas/land-110m.json";
 import { codeAt, numberAt, requireAt } from "./arrays";
 import { GEOMETRY_COLORS, POINT_COLORS } from "./palette";
 import type { PointClass } from "./palette";
-import type { D3Geometry, Position } from "./geo";
+import type { D3Geometry, D3Lines, Position } from "./geo";
 import { unitVector } from "./geo";
 
 /** Which projection a map uses. */
@@ -44,18 +46,83 @@ export const POINT_CLASS_ORDER: PointClass[] = [
   "falsePositive",
 ];
 
+/** Every layer a map can draw, each switched on and off from the legend. */
+export const LAYER_IDS = [
+  "truth",
+  "submitted",
+  "libraryBBox",
+  "expectedBBox",
+  ...POINT_CLASS_ORDER,
+] as const;
+
+/** One layer a map can draw. */
+export type LayerId = (typeof LAYER_IDS)[number];
+
 /** What one map draws. */
 export interface Scene {
   /** The polygon as it really is, with great-circle edges. */
   truth: D3Geometry;
   /** What the library was handed, drawn the way that library sees it. */
   submitted: D3Geometry | null;
+  /** The bounding box the library reported. */
+  libraryBBox: D3Lines | null;
+  /** The true geodetic bounding box of the polygon. */
+  expectedBBox: D3Lines | null;
   points: ClassifiedPoints;
   /** Where to center an orthographic globe. */
   center: Position;
-  showSkipped: boolean;
-  /** False draws the geometry alone, for a combination the library never answered. */
-  showPoints: boolean;
+  /** Which layers are drawn. The legend changes this in place, then calls {@link MapView.redraw}. */
+  visible: Record<LayerId, boolean>;
+}
+
+/** Most a map zooms in, as a multiple of its fitted scale. */
+export const MAX_ZOOM = 20;
+
+/** Degrees the globe turns per pixel dragged, at the fitted scale. */
+const BASE_ROTATION_SENSITIVITY = 0.4;
+
+/**
+ * The projection scale at a zoom factor.
+ *
+ * @param fitted - The scale that fits the whole sphere in the canvas.
+ * @param k - The zoom factor, 1 when not zoomed.
+ * @returns The scale to draw at.
+ */
+export function zoomedScale(fitted: number, k: number): number {
+  return fitted * k;
+}
+
+/**
+ * The projection translate for a zoom transform on a flat map.
+ *
+ * Applying the zoom here, rather than with `context.setTransform`, keeps line
+ * widths and point radii in screen pixels at every zoom.
+ *
+ * @param fitted - The translate that fits the whole sphere in the canvas.
+ * @param transform - The zoom transform, in screen pixels.
+ * @param transform.k - The zoom factor.
+ * @param transform.x - The horizontal offset.
+ * @param transform.y - The vertical offset.
+ * @returns The translate to draw at.
+ */
+export function zoomedTranslate(
+  fitted: [number, number],
+  transform: { k: number; x: number; y: number },
+): [number, number] {
+  return [fitted[0] * transform.k + transform.x, fitted[1] * transform.k + transform.y];
+}
+
+/**
+ * Degrees the globe turns per pixel dragged at a zoom factor.
+ *
+ * Divided by the zoom, so the ground under the pointer moves at about the
+ * pointer's speed whether the globe is zoomed in or not.
+ *
+ * @param k - The zoom factor, 1 when not zoomed.
+ * @returns Degrees per pixel.
+ */
+export function rotationSensitivity(k: number): number {
+  return BASE_ROTATION_SENSITIVITY / k;
 }
 
 const landFeature = feature(
@@ -75,34 +142,72 @@ const POINT_RADIUS: Record<PointClass, number> = {
   referenceOutside: 1.1,
 };
 
+/**
+ * How many fingers a pointer event carries, 0 for a mouse.
+ *
+ * Checked by property rather than `instanceof TouchEvent`, because desktop
+ * Safari has no `TouchEvent` constructor at all.
+ *
+ * @param event - The event to inspect.
+ * @returns The number of touches.
+ */
+function touchCount(event: Event): number {
+  return "touches" in event ? (event as TouchEvent).touches.length : 0;
+}
+
 /** A map attached to a canvas, redrawn on demand. */
 export class MapView {
   private readonly canvas: HTMLCanvasElement;
   private readonly kind: ProjectionKind;
   private readonly projection: GeoProjection;
+  private readonly zoomBehavior: ZoomBehavior<HTMLCanvasElement, unknown>;
+  private readonly onViewChange: (moved: boolean) => void;
   private scene: Scene | null = null;
+  private initialRotation: [number, number] = [0, 0];
   private rotation: [number, number] = [0, 0];
+  private transform: ZoomTransform = zoomIdentity;
   private projected = new Float64Array(0);
 
-  constructor(canvas: HTMLCanvasElement, kind: ProjectionKind) {
+  /**
+   * @param canvas - The canvas to draw on.
+   * @param kind - Which projection to use.
+   * @param onViewChange - Called after every redraw with whether the view is
+   *   zoomed or rotated away from where {@link setScene} put it, so the caller
+   *   can show a reset control only when there is something to reset.
+   */
+  constructor(
+    canvas: HTMLCanvasElement,
+    kind: ProjectionKind,
+    onViewChange: (moved: boolean) => void = () => undefined,
+  ) {
     this.canvas = canvas;
     this.kind = kind;
+    this.onViewChange = onViewChange;
     this.projection = kind === "orthographic" ? geoOrthographic() : geoEquirectangular();
+    this.zoomBehavior = this.enableZoom();
     if (kind === "orthographic") {
       this.enableDrag();
     }
   }
 
   /**
-   * Replace what this map draws and redraw it.
+   * Replace what this map draws, reset the view, and redraw.
    *
    * @param scene - The new scene.
    */
   setScene(scene: Scene): void {
     this.scene = scene;
-    this.rotation = [-scene.center[0], -scene.center[1]];
+    this.initialRotation = [-scene.center[0], -scene.center[1]];
     this.projected = new Float64Array(scene.points.lons.length * 2);
-    this.render();
+    this.resetView();
+  }
+
+  /** Undo any zoom, pan or rotation, and redraw. */
+  resetView(): void {
+    this.rotation = [...this.initialRotation];
+    // Setting the transform through the behavior keeps d3-zoom's own record of
+    // it in step. Its zoom event does the redraw.
+    this.zoomBehavior.transform(select(this.canvas), zoomIdentity);
   }
 
   /** Resize the backing store to the element and redraw. */
@@ -120,18 +225,56 @@ export class MapView {
     this.render();
   }
 
+  private isMoved(): boolean {
+    // The globe ignores the transform's x and y (see configureProjection), so
+    // only the flat map counts them.
+    const panned =
+      this.kind === "equirectangular" && (this.transform.x !== 0 || this.transform.y !== 0);
+    return (
+      this.transform.k !== 1 ||
+      panned ||
+      this.rotation[0] !== this.initialRotation[0] ||
+      this.rotation[1] !== this.initialRotation[1]
+    );
+  }
+
+  private enableZoom(): ZoomBehavior<HTMLCanvasElement, unknown> {
+    const behavior = zoom<HTMLCanvasElement, unknown>()
+      .scaleExtent([1, MAX_ZOOM])
+      .on("zoom", (event: { transform: ZoomTransform }) => {
+        this.transform = event.transform;
+        this.render();
+      });
+
+    if (this.kind === "orthographic") {
+      // Dragging the globe rotates it (d3-drag), so zoom takes only the wheel,
+      // double-click and a two-finger pinch. Without this filter both
+      // behaviors would claim every drag.
+      behavior.filter((event: Event) => {
+        if (event.type === "wheel" || event.type === "dblclick") {
+          return true;
+        }
+        return touchCount(event) > 1;
+      });
+    }
+
+    select(this.canvas).call(behavior);
+    return behavior;
+  }
+
   private enableDrag(): void {
     let start: [number, number] = [0, 0];
     let startRotation: [number, number] = [0, 0];
 
     const behavior = drag<HTMLCanvasElement, unknown>()
+      // A second finger belongs to the pinch zoom, not to a rotation.
+      .filter((event: Event) => touchCount(event) <= 1)
       .on("start", (event: { x: number; y: number }) => {
         start = [event.x, event.y];
         startRotation = [...this.rotation];
       })
       .on("drag", (event: { x: number; y: number }) => {
-        // 0.4 degrees per pixel keeps a full turn about two screen widths wide.
-        const sensitivity = 0.4;
+        const sensitivity = rotationSensitivity(this.transform.k);
         const yaw = startRotation[0] + (event.x - start[0]) * sensitivity;
         const pitch = startRotation[1] - (event.y - start[1]) * sensitivity;
         this.rotation = [yaw, Math.max(-90, Math.min(90, pitch))];
@@ -167,12 +310,14 @@ export class MapView {
 
     this.drawBase(context, path, width, height);
     this.drawGeometry(context, path, scene);
-    if (scene.showPoints) {
-      this.drawPoints(context, scene);
-    }
+    this.drawPoints(context, scene, width, height);
+    // Boxes go over the points: under them, a dotted line vanishes into the grid.
+    this.drawBBoxes(context, path, scene);
+    this.onViewChange(this.isMoved());
   }
 
   private configureProjection(width: number, height: number): void {
+    const k = this.transform.k;
     if (this.kind === "orthographic") {
       this.projection.rotate([this.rotation[0], this.rotation[1]]).fitExtent(
         [
@@ -181,8 +326,12 @@ export class MapView {
         ],
         { type: "Sphere" },
       );
+      // The globe zooms about its center: the transform's x and y, which
+      // d3-zoom aims at the pointer, are ignored. Rotation does the panning.
+      this.projection.scale(zoomedScale(this.projection.scale(), k));
       return;
     }
+
     this.projection.rotate([0, 0]).fitExtent(
       [
         [2, 2],
@@ -190,6 +339,16 @@ export class MapView {
       ],
       { type: "Sphere" },
     );
+    const fitted = this.projection.translate();
+    this.projection
+      .scale(zoomedScale(this.projection.scale(), k))
+      .translate(zoomedTranslate(fitted, this.transform));
+    // Panning stops at the map's edges. Set on every render because the
+    // canvas can have been resized since the last one.
+    this.zoomBehavior.translateExtent([
+      [0, 0],
+      [width, height],
+    ]);
   }
 
   private drawBase(
@@ -234,15 +393,17 @@ export class MapView {
     path: ReturnType<typeof geoPath>,
     scene: Scene,
   ): void {
-    context.beginPath();
-    path(scene.truth as unknown as GeoPermissibleObjects);
-    context.fillStyle = "rgba(17, 17, 17, 0.08)";
-    context.fill();
-    context.strokeStyle = GEOMETRY_COLORS.truth;
-    context.lineWidth = 1.6;
-    context.stroke();
+    if (scene.visible.truth) {
+      context.beginPath();
+      path(scene.truth as unknown as GeoPermissibleObjects);
+      context.fillStyle = "rgba(17, 17, 17, 0.08)";
+      context.fill();
+      context.strokeStyle = GEOMETRY_COLORS.truth;
+      context.lineWidth = 1.6;
+      context.stroke();
+    }
 
-    if (scene.submitted !== null) {
+    if (scene.submitted !== null && scene.visible.submitted) {
       context.beginPath();
       path(scene.submitted as unknown as GeoPermissibleObjects);
       context.fillStyle = "rgba(0, 158, 115, 0.12)";
@@ -255,8 +416,50 @@ export class MapView {
     }
   }
 
-  private drawPoints(context: CanvasRenderingContext2D, scene: Scene): void {
+  private drawBBoxes(
+    context: CanvasRenderingContext2D,
+    path: ReturnType<typeof geoPath>,
+    scene: Scene,
+  ): void {
+    if (scene.libraryBBox !== null && scene.visible.libraryBBox) {
+      this.drawBBox(context, path, scene.libraryBBox, GEOMETRY_COLORS.submitted);
+    }
+    if (scene.expectedBBox !== null && scene.visible.expectedBBox) {
+      this.drawBBox(context, path, scene.expectedBBox, GEOMETRY_COLORS.truth);
+    }
+  }
+
+  private drawBBox(
+    context: CanvasRenderingContext2D,
+    path: ReturnType<typeof geoPath>,
+    outline: D3Lines,
+    color: string,
+  ): void {
+    // Dotted, where the submitted geometry is dashed, so a box never reads as a polygon edge.
+    context.beginPath();
+    path(outline);
+    context.strokeStyle = color;
+    context.lineWidth = 2;
+    context.lineCap = "round";
+    context.setLineDash([0.1, 4]);
+    context.stroke();
+    context.setLineDash([]);
+    context.lineCap = "butt";
+  }
+
+  private drawPoints(
+    context: CanvasRenderingContext2D,
+    scene: Scene,
+    width: number,
+    height: number,
+  ): void {
+    if (!POINT_CLASS_ORDER.some((pointClass) => scene.visible[pointClass])) {
+      return;
+    }
     const { lons, lats, classes } = scene.points;
+    // Zoomed in, most points project off the canvas; skipping them early saves
+    // the arc calls. The margin keeps a dot whose center is just outside.
+    const margin = 4;
 
     // Project every point once per frame into a reusable buffer, then draw in
     // one pass per class so fillStyle is set five times rather than 5,000.
@@ -279,7 +482,13 @@ export class MapView {
       }
 
       const point = this.projection([lon, lat]);
-      if (point === null) {
+      if (
+        point === null ||
+        point[0] < -margin ||
+        point[0] > width + margin ||
+        point[1] < -margin ||
+        point[1] > height + margin
+      ) {
         this.projected[index * 2] = Number.NaN;
         continue;
       }
@@ -289,7 +498,7 @@ export class MapView {
 
     for (let code = 0; code < POINT_CLASS_ORDER.length; code += 1) {
       const pointClass = requireAt(POINT_CLASS_ORDER, code);
-      if (pointClass === "skipped" && !scene.showSkipped) {
+      if (!scene.visible[pointClass]) {
         continue;
       }
 

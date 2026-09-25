@@ -11,11 +11,13 @@ import type { BaseType, Selection } from "d3-selection";
 
 import { findResult, findVariant, formatArea, formatBBox, formatErrorPct } from "./data";
 import type { Dataset } from "./data";
-import { ringCentroid, ringsOf, toD3Geometry, toDrawableSubmitted } from "./geo";
-import type { Position } from "./geo";
+import { bboxOutline, ringCentroid, ringsOf, toD3Geometry, toDrawableSubmitted } from "./geo";
+import type { D3Lines, Position } from "./geo";
+import type { BBox } from "./generated/results";
+import { layerHelp } from "./help";
 import { MapView } from "./map";
-import type { ClassifiedPoints, Scene } from "./map";
-import { POINT_CLASS_ORDER } from "./map";
+import type { ClassifiedPoints, LayerId, Scene } from "./map";
+import { LAYER_IDS, POINT_CLASS_ORDER } from "./map";
 import {
   GEOMETRY_COLORS,
   OUTCOME_DESCRIPTIONS,
@@ -31,7 +33,11 @@ import { requireAt } from "./arrays";
 
 type Block<E extends BaseType> = Selection<E, unknown, null, undefined>;
 
-const POINT_LABELS: Record<PointClass, string> = {
+const LAYER_LABELS: Record<LayerId, string> = {
+  truth: "The polygon as it really is (great-circle edges)",
+  submitted: "What the library was handed, as the library sees it",
+  libraryBBox: "Bounding box the library reported",
+  expectedBBox: "Expected bounding box",
   correctInside: "Correct: inside",
   correctOutside: "Correct: outside",
   falsePositive: "False positive: called inside, is outside",
@@ -43,10 +49,19 @@ const POINT_LABELS: Record<PointClass, string> = {
 
 const NO_ANSWER_NOTE =
   "This library never answered for this polygon, so there is nothing of its to show on the " +
-  "maps. The reference answer can be shown for comparison; none of it is a mark for or " +
-  "against the library.";
+  "maps. Turn on the grey reference entries below the maps to see where the points truly lie; " +
+  "none of it is a mark for or against the library.";
 
-const SHOW_REFERENCE_LABEL = "Show the reference answer for these points";
+/** The legend lists point classes in reading order, not the maps' drawing order. */
+const LEGEND_POINT_ORDER: PointClass[] = [
+  "correctInside",
+  "correctOutside",
+  "falsePositive",
+  "falseNegative",
+  "skipped",
+  "referenceInside",
+  "referenceOutside",
+];
 
 /**
  * The maps the detail view currently owns.
@@ -75,18 +90,57 @@ export function disposeDetail(): void {
 }
 
 /**
- * Whether the maps should draw the point grid.
+ * Which layers a combination's maps draw before the viewer changes anything.
  *
- * A combination the library never answered has no measurements, and any dot on
- * a map reads as one, so its points are hidden unless the viewer asks for the
- * reference answer.
+ * The bounding boxes and the skipped points start hidden, as extra detail. The
+ * grey reference classes also start hidden: they only appear when the library
+ * never answered, and any dot on a map reads as a measurement, so that case
+ * shows no points until the viewer asks for them. Each render starts over from
+ * these, rather than carrying the last combination's choices along.
  *
- * @param outcome - The combination's outcome.
- * @param showReference - Whether the "show the reference answer" toggle is on.
- * @returns True when the points should be drawn.
+ * @returns A fresh visibility record.
  */
-export function shouldDrawPoints(outcome: Outcome, showReference: boolean): boolean {
-  return outcomeHasAnswer(outcome) || showReference;
+export function defaultVisibility(): Record<LayerId, boolean> {
+  const hiddenByDefault = new Set<LayerId>([
+    "libraryBBox",
+    "expectedBBox",
+    "skipped",
+    "referenceInside",
+    "referenceOutside",
+  ]);
+  return Object.fromEntries(
+    LAYER_IDS.map((layer) => [layer, !hiddenByDefault.has(layer)]),
+  ) as Record<LayerId, boolean>;
+}
+
+/**
+ * Whether the maps draw any point at all.
+ *
+ * A class switched on counts only if some point has it: on a map the library
+ * never answered, "Correct: inside" is on by default but there are none.
+ *
+ * @param visible - The current layer visibility.
+ * @param classes - Each point's class code.
+ * @returns True when at least one point is drawn.
+ */
+export function drawsAnyPoints(visible: Record<LayerId, boolean>, classes: Uint8Array): boolean {
+  const present = new Set(classes);
+  return POINT_CLASS_ORDER.some((pointClass, code) => visible[pointClass] && present.has(code));
+}
+
+/**
+ * Outline a bounding box for the maps, if there is one with edges to draw.
+ *
+ * @param bbox - The box, or null when there is none.
+ * @returns Its outline, or null when there is nothing to draw.
+ */
+function outlineOrNull(bbox: BBox | null | undefined): D3Lines | null {
+  if (bbox === null || bbox === undefined) {
+    return null;
+  }
+  const outline = bboxOutline(bbox);
+  // A box covering the whole sphere has no edges.
+  return outline.coordinates.length > 0 ? outline : null;
 }
 
 /**
@@ -210,10 +264,11 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
     submitted: result.accepted
       ? toDrawableSubmitted(result.submitted_geometry, system.semantics)
       : null,
+    libraryBBox: outlineOrNull(result.bbox),
+    expectedBBox: outlineOrNull(dataset.referenceByPolygon.get(route.polygonId)?.bbox),
     points,
     center,
-    showSkipped: false,
-    showPoints: shouldDrawPoints(result.outcome, false),
+    visible: defaultVisibility(),
   };
 
   const answered = outcomeHasAnswer(result.outcome);
@@ -228,8 +283,8 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
       .append("figcaption")
       .text(
         kind === "orthographic"
-          ? "Globe (drag to rotate)"
-          : "Equirectangular — a planar library's edges are straight lines here",
+          ? "Globe (drag to rotate, scroll to zoom)"
+          : "Equirectangular — a planar library's edges are straight lines here (scroll to zoom)",
       );
     const frame = figure.append("div").attr("class", "map-frame");
     const canvas = frame.append("canvas").node();
@@ -239,20 +294,35 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
         .attr("class", "not-measured")
         .text(notMeasuredLabel(system.name, result.outcome));
     }
+    const reset = frame
+      .append("button")
+      .attr("type", "button")
+      .attr("class", "reset-view")
+      .property("hidden", true)
+      .text("Reset view");
     if (canvas !== null) {
-      const view = new MapView(canvas, kind);
+      const view = new MapView(canvas, kind, (moved) => reset.property("hidden", !moved));
+      reset.on("click", () => {
+        view.resetView();
+      });
       view.setScene(scene);
       views.push(view);
     }
   }
 
+  // "Not measured" and a dot on the map contradict each other, so the label
+  // goes whenever the viewer switches a point layer on.
   const overlays = maps.selectAll<HTMLDivElement, unknown>(".not-measured");
+  const syncOverlays = (): void => {
+    overlays.style("display", drawsAnyPoints(scene.visible, scene.points.classes) ? "none" : "");
+  };
+  syncOverlays();
   renderMapLegend(
     maps.append("div").attr("class", "map-legend"),
     scene,
     views,
-    result.outcome,
-    (visible) => overlays.style("display", visible ? "" : "none"),
+    dataset.file.grid.edge_tolerance_deg ?? 0.25,
+    syncOverlays,
   );
 
   activeViews = views;
@@ -270,99 +340,134 @@ function renderMapLegend<E extends BaseType>(
   legend: Block<E>,
   scene: Scene,
   views: MapView[],
-  outcome: Outcome,
-  setOverlaysVisible: (visible: boolean) => void,
+  toleranceDeg: number,
+  onVisibilityChange: () => void,
 ): void {
-  const redraw = (): void => {
+  const toggle = (layer: LayerId): boolean => {
+    scene.visible[layer] = !scene.visible[layer];
     for (const view of views) {
-      // redraw, not setScene: the scene is the same object, and recentering
-      // here would snap a globe the viewer had dragged back to the start.
+      // redraw, not setScene: the scene is the same object, and resetting the
+      // view here would throw away the viewer's zoom and rotation.
       view.redraw();
     }
+    onVisibilityChange();
+    return scene.visible[layer];
   };
 
-  const geometry = legend.append("div").attr("class", "legend-row");
-  const truth = geometry.append("span").attr("class", "legend-item");
-  truth.append("span").attr("class", "line line-truth");
-  truth.append("span").text("The polygon as it really is (great-circle edges)");
-
+  // Only list what there is to draw. A legend entry for "Correct: inside" on a
+  // map where the library never answered is exactly the claim to avoid.
+  const geometryLayers: LayerId[] = ["truth"];
   if (scene.submitted !== null) {
-    const submitted = geometry.append("span").attr("class", "legend-item");
-    submitted
-      .append("span")
-      .attr("class", "line line-submitted")
-      .style("border-top-color", GEOMETRY_COLORS.submitted);
-    submitted.append("span").text("What the library was handed, as the library sees it");
+    geometryLayers.push("submitted");
+  }
+  if (scene.libraryBBox !== null) {
+    geometryLayers.push("libraryBBox");
+  }
+  if (scene.expectedBBox !== null) {
+    geometryLayers.push("expectedBBox");
   }
 
-  // Only label what is actually drawn. A legend entry for "Correct: inside" on
-  // a map where the library never answered is exactly the claim to avoid.
   const present = new Set(scene.points.classes);
-  const pointRow = legend.append("div").attr("class", "legend-row");
-  const renderPointEntries = (): void => {
-    pointRow.selectAll("*").remove();
-    pointRow.style("display", scene.showPoints ? "" : "none");
-    for (const [code, pointClass] of POINT_CLASS_ORDER.entries()) {
-      if (pointClass === "skipped" || !present.has(code)) {
-        continue;
-      }
-      const item = pointRow.append("span").attr("class", "legend-item");
-      const dot = item.append("span").attr("class", "dot");
-      if (pointClass === "falseNegative") {
-        dot.attr("class", "dot dot-ring").style("border-color", POINT_COLORS[pointClass]);
-      } else {
-        dot.style("background-color", POINT_COLORS[pointClass]);
-      }
-      item.append("span").text(POINT_LABELS[pointClass]);
+  const pointLayers = LEGEND_POINT_ORDER.filter((pointClass) =>
+    present.has(POINT_CLASS_ORDER.indexOf(pointClass)),
+  );
+
+  for (const layers of [geometryLayers, pointLayers]) {
+    const row = legend.append("div").attr("class", "legend-row");
+    for (const layer of layers) {
+      appendLegendEntry(row, layer, scene.visible[layer], layerHelp(layer, toleranceDeg), toggle);
     }
-  };
-  renderPointEntries();
-
-  const toggles = legend.append("div").attr("class", "legend-row");
-
-  // Skipped points are points too: their toggle only does anything while the
-  // grid is drawn, so it is shown only then.
-  let skippedToggle: Block<HTMLLabelElement> | null = null;
-  const syncSkippedToggle = (): void => {
-    skippedToggle?.style("display", scene.showPoints ? "" : "none");
-  };
-
-  if (!outcomeHasAnswer(outcome)) {
-    appendToggle(toggles, SHOW_REFERENCE_LABEL, (checked) => {
-      scene.showPoints = shouldDrawPoints(outcome, checked);
-      setOverlaysVisible(!checked);
-      renderPointEntries();
-      syncSkippedToggle();
-      redraw();
-    });
-  }
-
-  if (present.has(POINT_CLASS_ORDER.indexOf("skipped"))) {
-    skippedToggle = appendToggle(toggles, POINT_LABELS.skipped, (checked) => {
-      scene.showSkipped = checked;
-      redraw();
-    });
-    syncSkippedToggle();
   }
 }
 
-function appendToggle<E extends BaseType>(
+function appendLegendEntry<E extends BaseType>(
   row: Block<E>,
-  label: string,
-  onChange: (checked: boolean) => void,
-): Block<HTMLLabelElement> {
-  const toggle: Block<HTMLLabelElement> = row.append("label").attr("class", "toggle");
-  toggle
-    .append("input")
-    .attr("type", "checkbox")
-    .on("change", (event: Event) => {
-      const input = event.currentTarget;
-      if (input instanceof HTMLInputElement) {
-        onChange(input.checked);
-      }
-    });
-  toggle.append("span").text(label);
-  return toggle;
+  layer: LayerId,
+  initiallyVisible: boolean,
+  help: string,
+  onToggle: (layer: LayerId) => boolean,
+): void {
+  const entry = row.append("span").attr("class", "legend-entry");
+
+  const button = entry
+    .append("button")
+    .attr("type", "button")
+    .attr("class", "legend-toggle")
+    .attr("aria-pressed", String(initiallyVisible))
+    .attr("title", "Show or hide on both maps");
+  appendSwatch(button, layer);
+  button.append("span").text(LAYER_LABELS[layer]);
+  button.on("click", () => {
+    button.attr("aria-pressed", String(onToggle(layer)));
+  });
+
+  // The native Popover API gives Escape and click-outside dismissal and focus
+  // handling with no library.
+  const popoverId = `help-${layer}`;
+  const helpButton = entry
+    .append("button")
+    .attr("type", "button")
+    .attr("class", "help-button")
+    .attr("popovertarget", popoverId)
+    .attr("aria-label", `About: ${LAYER_LABELS[layer]}`)
+    .text("?");
+  const popover = entry
+    .append("div")
+    .attr("id", popoverId)
+    .attr("popover", "")
+    .attr("class", "help-popover")
+    .text(help);
+
+  // CSS anchor positioning is not in every browser yet, so the pop-up is placed
+  // under its button by hand: once before it shows, then again once its real
+  // width is known, to keep it on screen.
+  const place = (): void => {
+    const anchor = helpButton.node();
+    const element = popover.node();
+    if (anchor === null || element === null) {
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    const gutter = 8;
+    const maxLeft = window.innerWidth - element.offsetWidth - gutter;
+    const left = Math.max(gutter, Math.min(rect.left, maxLeft));
+    element.style.top = `${String(rect.bottom + window.scrollY + 4)}px`;
+    element.style.left = `${String(left + window.scrollX)}px`;
+  };
+  popover.on("beforetoggle", place).on("toggle", place);
+}
+
+function appendSwatch<E extends BaseType>(button: Block<E>, layer: LayerId): void {
+  switch (layer) {
+    case "truth":
+      button.append("span").attr("class", "line line-truth");
+      return;
+    case "submitted":
+      button
+        .append("span")
+        .attr("class", "line line-submitted")
+        .style("border-top-color", GEOMETRY_COLORS.submitted);
+      return;
+    case "libraryBBox":
+    case "expectedBBox":
+      button
+        .append("span")
+        .attr("class", "line line-bbox")
+        .style(
+          "border-top-color",
+          layer === "libraryBBox" ? GEOMETRY_COLORS.submitted : GEOMETRY_COLORS.truth,
+        );
+      return;
+    case "falseNegative":
+      // Drawn as a ring on the map, so its key is one too.
+      button
+        .append("span")
+        .attr("class", "dot dot-ring")
+        .style("border-color", POINT_COLORS[layer]);
+      return;
+    default:
+      button.append("span").attr("class", "dot").style("background-color", POINT_COLORS[layer]);
+  }
 }
 
 function renderSidePanel<E extends BaseType>(

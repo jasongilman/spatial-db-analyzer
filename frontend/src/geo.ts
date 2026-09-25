@@ -6,7 +6,7 @@
  */
 
 import { requireAt } from "./arrays";
-import type { GeoJsonMultiPolygon, GeoJsonPolygon } from "./generated/results";
+import type { BBox, GeoJsonMultiPolygon, GeoJsonPolygon } from "./generated/results";
 
 /** Either geometry the results file can carry. */
 export type Geometry = GeoJsonPolygon | GeoJsonMultiPolygon;
@@ -234,4 +234,68 @@ export function unitVector(lon: number, lat: number): [number, number, number] {
   const latRad = lat * toRadians;
   const cosLat = Math.cos(latRad);
   return [cosLat * Math.cos(lonRad), cosLat * Math.sin(lonRad), Math.sin(latRad)];
+}
+
+/** Lines to stroke, in the shape d3-geo accepts. Never filled, so winding cannot go wrong. */
+export interface D3Lines {
+  type: "MultiLineString";
+  coordinates: Position[][];
+}
+
+/**
+ * Wrap a longitude into -180..180, keeping +180 as it is.
+ *
+ * @param lon - Longitude in degrees, possibly past 180.
+ * @returns The same meridian within -180..180.
+ */
+function wrapLon(lon: number): number {
+  return lon > 180 ? lon - 360 : lon;
+}
+
+/**
+ * Evenly spaced values from `start` to `end`, both included, at most `maxStep` apart.
+ *
+ * @param start - First value.
+ * @param end - Last value.
+ * @param maxStep - Largest gap between consecutive values.
+ * @returns The values.
+ */
+function steps(start: number, end: number, maxStep: number): number[] {
+  const count = Math.max(1, Math.ceil(Math.abs(end - start) / maxStep));
+  return Array.from({ length: count + 1 }, (_, index) => start + ((end - start) * index) / count);
+}
+
+/**
+ * The outline of a longitude/latitude bounding box, as the edges to stroke.
+ *
+ * A lon/lat box on a sphere is not four great-circle edges: its top and bottom
+ * are parallels, which d3 would otherwise draw as great-circle arcs bowing
+ * toward the pole. So every edge is densified at 1° and drawn as a line.
+ *
+ * When `west > east` the box crosses the antimeridian and runs east from `west`
+ * through 180 to `east`. An edge at a pole is a single point, and a box that
+ * spans every longitude has no side edges, so those are left out: a box
+ * covering the whole sphere has nothing to draw.
+ *
+ * @param box - The bounding box.
+ * @returns The box's edges.
+ */
+export function bboxOutline(box: BBox): D3Lines {
+  const { west, south, east, north } = box;
+  const span = west > east ? east - west + 360 : east - west;
+  const lons = steps(west, west + span, 1).map(wrapLon);
+  const lats = steps(south, north, 1);
+
+  const lines: Position[][] = [];
+  if (north < 90) {
+    lines.push(lons.map((lon) => [lon, north]));
+  }
+  if (south > -90) {
+    lines.push(lons.map((lon) => [lon, south]));
+  }
+  if (span < 360) {
+    lines.push(lats.map((lat) => [west, lat]));
+    lines.push(lats.map((lat) => [east, lat]));
+  }
+  return { type: "MultiLineString", coordinates: lines };
 }

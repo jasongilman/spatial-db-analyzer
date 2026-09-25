@@ -325,6 +325,15 @@ pre {
   cursor: grabbing;
 }
 
+/* The flat map pans only once zoomed; d3-zoom clamps it at the edges otherwise. */
+.map-equirectangular canvas {
+  cursor: grab;
+}
+
+.map-equirectangular canvas:active {
+  cursor: grabbing;
+}
+
 .map-legend {
   grid-column: 1 / -1;
   display: flex;
@@ -338,12 +347,6 @@ pre {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 1.25rem;
-}
-
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
 }
 
 .dot {
@@ -370,6 +373,11 @@ pre {
   border-top: 2px dashed;
 }
 
+/* The color is set inline: the submitted color for the library's box, truth for the expected one. */
+.line-bbox {
+  border-top: 2px dotted;
+}
+
 /* A false negative is drawn as a ring on the map, so its legend key is one too. */
 .dot-ring {
   box-sizing: border-box;
@@ -386,11 +394,89 @@ pre {
   );
 }
 
-.toggle {
+/* Each legend entry is a button that shows or hides its layer on both maps. */
+.legend-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.legend-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  padding: 0.1rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
+}
+
+.legend-toggle:hover {
+  border-color: var(--rule);
+}
+
+.legend-toggle[aria-pressed="false"] {
+  opacity: 0.4;
+}
+
+.legend-toggle[aria-pressed="false"] span:last-child {
+  text-decoration: line-through;
+}
+
+.help-button {
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: #ffffff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.help-button:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
+/* Placed under its button by detail.ts; the UA default would center it on screen. */
+.help-popover {
+  position: absolute;
+  inset: auto;
+  margin: 0;
+  max-width: min(20rem, calc(100vw - 16px));
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.reset-view {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.reset-view[hidden] {
+  display: none;
 }
 
 .side-panel {

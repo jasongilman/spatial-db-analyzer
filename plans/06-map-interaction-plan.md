@@ -1,6 +1,11 @@
 # Map Interaction Plan: Zoom and an Interactive Legend
 
-> **Status: not started.** Second of three review-driven plans. It follows
+> **Status: complete** (verified 2026-09-25 on `map-interaction`). Sections A, B and C are done,
+> every exit criterion passes (`scripts/lint.sh`, `scripts/test.sh` with 116 pytest and 96 vitest,
+> `npm run build`), and Jason finished the manual verification. Where the code differs from this
+> plan is under [Implementation notes](#implementation-notes).
+>
+> Second of three review-driven plans. It follows
 > [05-clarity-fixes-plan.md](05-clarity-fixes-plan.md), whose colors and "no measurements" state it
 > builds on. It precedes [07-explanatory-pages-plan.md](07-explanatory-pages-plan.md), which
 > reuses its help text.
@@ -29,17 +34,23 @@ comes first.
 
 ## Decisions to confirm before starting
 
-1. *Proposed:* **Each map zooms on its own** (A). The two maps are not linked, because a zoom level means
+1. *Confirmed (Jason):* **Each map zooms on its own** (A). The two maps are not linked, because a zoom level means
    something different on a globe than on a flat map.
-2. *Proposed:* **The wheel always zooms while the pointer is over a map**, as asked. The cost: scrolling the
+2. *Confirmed (Jason):* **The wheel always zooms while the pointer is over a map**, as asked. The cost: scrolling the
    page past the maps with the pointer over them zooms the map instead. The maps are about half the
    viewport tall, so this is tolerable. If it proves annoying, the fallback is Google Maps' "hold
    Ctrl/⌘ to zoom" rule.
-3. *Proposed:* **Toggle state carries across navigation** (B). If you turn the bounding boxes on and click to a
-   sibling combination, they stay on. The state lives in memory only and resets on reload. It is
-   not stored in `localStorage`.
-4. *Proposed:* **Both bounding boxes are off by default** (B). Every other layer defaults to on, except
+3. *Confirmed (Jason), changed from the proposal:* **Toggles reset to defaults on navigation** (B).
+   Every combination opens with the default layers. Clicking a sibling link after turning the
+   bounding boxes on shows them off again. No state is kept in memory or `localStorage`.
+4. *Confirmed (Jason):* **Both bounding boxes are off by default** (B). Every other layer defaults to on, except
    skipped points and, from plan 05, the reference answer on rejected combinations.
+
+5. *Confirmed (Jason), a gap in the original plan:* **The grey reference entries replace the
+   "Show the reference answer" checkbox** (B). On a combination the library never answered, the
+   "Reference inside" and "Reference outside" entries are always listed, faded while off.
+   Turning either one on draws those points and hides the "Not measured" label. The checkbox from
+   plan 05 is removed, so every legend entry works the same way.
 
 ## A. Zoom
 
@@ -89,8 +100,8 @@ through 180 to `east`. A box with `north === 90` has no top edge. Unit tests in 
 
 **Layer model.** Replace `Scene.showSkipped` with `Scene.visible: Record<LayerId, boolean>`, where
 `LayerId` is `truth | submitted | libraryBBox | expectedBBox | ` plus each `PointClass`. `MapView`
-skips each hidden layer. Module-level state in `detail.ts` holds the current visibility and is
-copied into each new scene.
+skips each hidden layer. Each render of the detail page starts from the default visibility
+(decision 3).
 
 **Legend.** Each entry becomes a `<button aria-pressed>` that holds its swatch and label. The
 entry fades when its layer is off. Rows:
@@ -154,6 +165,23 @@ scripts/lint.sh && scripts/test.sh
    [03-phase-1-findings.md](03-phase-1-findings.md)).
 4. `#/combo/normal/shapely/raw`: the expected box's northern edge sits slightly above the polygon's
    top vertices (45.44° vs 45°).
-5. Every legend entry hides and shows its layer on both maps. Clicking a sibling link keeps the
-   toggles as they were.
+5. Every legend entry hides and shows its layer on both maps. Clicking a sibling link resets the
+   toggles to their defaults.
 6. Every `?` opens readable help text, and Escape or clicking elsewhere closes it.
+7. A rejected combination: no dots and "Not measured" at first. Turning on either grey reference
+   entry draws those dots and hides the label.
+
+## Implementation notes
+
+* `bboxOutline` returns its own `D3Lines` type (`MultiLineString`), not `D3Geometry`, which
+  covers only polygons.
+* A box spanning all 360° of longitude has no side edges, and one covering the whole sphere has
+  nothing to draw. So `both_poles` shows no "Expected bounding box" legend entry.
+* Bounding boxes are drawn above the points. Drawn underneath, the dotted lines disappeared into
+  the grid.
+* On a combination the library never answered, turning on any point layer present on the map,
+  skipped included, hides the "Not measured" label, since any dot contradicts it.
+* `zoomedTranslate` was added next to `zoomedScale` and `rotationSensitivity` as a pure, tested
+  function. The two grey reference entries have separate inside/outside help text.
+* One quirk surfaced during verification: some rejected combinations still carry
+  `accepted: true`. It is recorded in [08-misc-followups-plan.md](08-misc-followups-plan.md).

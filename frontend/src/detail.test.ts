@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { buildDataset } from "./data";
-import { classifyPoints, shouldDrawPoints } from "./detail";
+import { classifyPoints, defaultVisibility, drawsAnyPoints } from "./detail";
 import { POINT_CLASS_ORDER } from "./map";
 import { requireAt } from "./arrays";
 import type { CombinationResult, ResultsFile } from "./generated/results";
-import type { Outcome, PointClass } from "./palette";
+import type { PointClass } from "./palette";
 
 const polygon = {
   type: "Polygon" as const,
@@ -111,22 +111,38 @@ describe("classifyPoints", () => {
   });
 });
 
-describe("shouldDrawPoints", () => {
-  const cases: [Outcome, boolean, boolean][] = [
-    ["correct", false, true],
-    ["correct", true, true],
-    ["disagrees", false, true],
-    ["disagrees", true, true],
-    ["no_data", false, true],
-    ["no_data", true, true],
-    // The library never answered: no dots unless the viewer asks for the reference.
-    ["rejected", false, false],
-    ["rejected", true, true],
-    ["error", false, false],
-    ["error", true, true],
-  ];
+describe("defaultVisibility", () => {
+  it("starts with the boxes, skipped points and reference answer hidden", () => {
+    const visible = defaultVisibility();
+    const hidden = Object.entries(visible)
+      .filter(([, shown]) => !shown)
+      .map(([layer]) => layer);
+    expect(hidden.sort()).toEqual(
+      ["expectedBBox", "libraryBBox", "referenceInside", "referenceOutside", "skipped"].sort(),
+    );
+  });
 
-  it.each(cases)("%s with the reference toggle %s draws points: %s", (outcome, show, drawn) => {
-    expect(shouldDrawPoints(outcome, show)).toBe(drawn);
+  it("returns a fresh record each time, so one render cannot change the next", () => {
+    const first = defaultVisibility();
+    first.truth = false;
+    expect(defaultVisibility().truth).toBe(true);
+  });
+});
+
+describe("drawsAnyPoints", () => {
+  const codes = (...names: PointClass[]): Uint8Array =>
+    Uint8Array.from(names.map((name) => POINT_CLASS_ORDER.indexOf(name)));
+
+  it("is false where the library never answered, until a grey entry is turned on", () => {
+    // "Correct: inside" is on by default, but no point has that class here.
+    const classes = codes("referenceInside", "referenceOutside", "skipped");
+    const visible = defaultVisibility();
+    expect(drawsAnyPoints(visible, classes)).toBe(false);
+    visible.referenceOutside = true;
+    expect(drawsAnyPoints(visible, classes)).toBe(true);
+  });
+
+  it("is true by default where the library answered", () => {
+    expect(drawsAnyPoints(defaultVisibility(), codes("correctOutside"))).toBe(true);
   });
 });
