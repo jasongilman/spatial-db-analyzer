@@ -1,7 +1,12 @@
 # Clarity Fixes Plan
 
-> **Status: not started.** This is the first of three plans that address Jason's post-Phase 1
-> review of the site. It is the small one. The others are
+> **Status: complete** (verified 2026-09-25 on `clarity-fixes`). Sections A, B and C are done,
+> every exit criterion passes (`scripts/lint.sh`, `scripts/test.sh` with 116 pytest and 80 vitest,
+> both generate scripts, `npm run build`), and Jason finished the manual verification. The one
+> change from review, dropping the word "agree", is under
+> [Implementation notes](#implementation-notes).
+>
+> This is the first of three plans that address Jason's post-Phase 1 review of the site. It is the small one. The others are
 > [06-map-interaction-plan.md](06-map-interaction-plan.md) (zoom and an interactive legend) and
 > [07-explanatory-pages-plan.md](07-explanatory-pages-plan.md) (an intro page and a page covering
 > the libraries and their fixes). Do them in order: 06 rebuilds the legend that this plan
@@ -13,7 +18,7 @@ a feature.
 | Review item | Section |
 |---|---|
 | 2. On a rejected polygon, the point grid looks like measurements | [A](#a-rejected-and-errored-combinations-show-no-measurements) |
-| 3. "Accepted but wrong" is confusing | [B](#b-rename-accepted-but-wrong) |
+| 3. "Accepted but wrong" is confusing | [B](#b-retire-accepted-but-wrong) |
 | 8. False positive and false negative colors are too close | [C](#c-separate-the-colors) |
 
 ## Working this plan
@@ -44,7 +49,11 @@ Each has a recommendation, which the implementation follows unless Jason says ot
    disagreed with the reference on at least one point). Nobody reads the enum on the site, but it
    appears in `results.json`, the CLI and the tests, and "accepted but wrong" is the phrasing being
    retired. This touches Python, so it needs a `schema_version` bump from 2 to 3.
+4. *Confirmed (Jason, after comparing it on a test page):* **The section C palette as written.**
+
 ## A. Rejected and errored combinations show no measurements
+
+*Status: done.*
 
 **Today:** since the Phase 1 code-review fixes, `classifyPoints` in
 [detail.ts](../frontend/src/detail.ts) already draws a rejected or errored combination's points as
@@ -71,6 +80,9 @@ produces one.
 `shouldDrawPoints(outcome, showReference)`, and test all 5 outcomes × both toggle states.
 
 ## B. Retire "accepted but wrong"
+
+*Status: done. Cells and chips show the bare percentage ("99.4%"), without "agree"; see
+[Implementation notes](#implementation-notes).*
 
 **On the site: no label, just the number.**
 
@@ -108,10 +120,13 @@ only the "% agree" string. Move the cell-text formatting into a pure function (f
 
 ## C. Separate the colors
 
+*Status: done. The palette below is as implemented, and every pair passes the ΔE test with no
+substitutions.*
+
 The problem appears twice. Points use false positive `#D55E00` (vermillion) and false negative
 `#E69F00` (orange). The matrix uses the same pair for "accepted but wrong" and "rejected".
 
-**Proposed palette.** Keep Okabe-Ito where possible:
+**Palette (confirmed).** Keep Okabe-Ito where possible:
 
 | Role | Now | Proposed | Notes |
 |---|---|---|---|
@@ -137,7 +152,26 @@ Machado 2009 (severity 1.0) simulation of deuteranopia and protanopia. It assert
 If a proposed color fails, adjust it within Okabe-Ito, and report the substitution at the
 checkpoint rather than lowering the threshold.
 
+## Implementation notes
+
+Where the code differed from this plan, or the plan left a choice open:
+
+* `schema_version` 2 also appeared in `runner.py:322`, `test_cli.py`, `test_models.py`,
+  `data.test.ts` and `detail.test.ts`. All of them now say 3.
+* `results.json` also changes `duration_ms` on every result (timing), besides the rename,
+  `schema_version` and `generated_at`. Nothing else differs.
+* A `disagrees` percentage is truncated, not rounded, so a single wrong point can never read
+  "100.0%". Exactly 100 shows as "100%".
+* After review, Jason dropped the word "agree": cells and chips show just "99.4%" (and "100%"
+  over "Correct"). The tooltip keeps its full sentence. A cell's percentage doesn't wrap.
+* The "Not measured" label hides while "Show the reference answer" is on. The "Skipped" toggle
+  shows only while points are drawn, because it has no effect otherwise.
+* The submitted geometry's translucent fill in `map.ts` changed from purple to green as well,
+  and `.line-submitted` takes its color from `GEOMETRY_COLORS` instead of hard-coding it.
+
 ## Exit criteria
+
+*Status: all pass.*
 
 ```bash
 scripts/lint.sh && scripts/test.sh
@@ -147,6 +181,8 @@ scripts/generate_types.sh && scripts/generate_results.sh   # the only results di
 
 ## Manual verification (Jason)
 
+*Status: done. Jason completed the visual review on 2026-09-25.*
+
 With `(cd frontend && npm run dev)`:
 
 1. `#/combo/north_pole/shapely/raw`: both maps show the polygon outline and the "Not measured"
@@ -155,7 +191,7 @@ With `(cd frontend && npm run dev)`:
 2. `#/combo/both_poles/shapely/raw`: false positives (red-orange dots) and false negatives (purple
    rings) are distinguishable at a glance, including where they sit next to each other.
 3. Summary matrix: the `north_pole` and `south_pole` raw cells are yellow "Rejected". The
-   `both_poles` cells show only "0.9% agree" and "0.0% agree", with no outcome word. Nothing says
+   `both_poles` cells show only "0.9%" and "0.0%", with no outcome word. Nothing says
    "Accepted but wrong".
 4. Optional: view the matrix through a color-blindness simulator (for example, the Chrome DevTools
    Rendering tab → "Emulate vision deficiencies" → deuteranopia).

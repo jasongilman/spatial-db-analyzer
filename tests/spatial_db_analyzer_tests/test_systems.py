@@ -98,7 +98,7 @@ def test_spherical_variants_are_exactly_correct_on_the_control_polygon(results: 
 def test_shapely_raw_gets_the_antimeridian_backwards(results: ResultsFile):
     """It excludes (179.9, 0), which is inside, and includes (0, 0), which is not."""
     result = _result(results, "antimeridian", "shapely", "raw")
-    assert result.outcome == "accepted_but_wrong"
+    assert result.outcome == "disagrees"
 
     system = next(system for system in ALL_SYSTEMS if system.info.id == "shapely")
     lons = np.array([179.9, 0.0])
@@ -113,7 +113,7 @@ def test_shapely_raw_gets_the_antimeridian_backwards(results: ResultsFile):
 def test_spherely_default_returns_the_complement_of_both_poles(results: ResultsFile):
     """Ignoring winding, spherely picks the smaller candidate: the 12% box, not the 88% rest."""
     result = _result(results, "both_poles", "spherely", "default")
-    assert result.outcome == "accepted_but_wrong"
+    assert result.outcome == "disagrees"
     assert result.area_m2 is not None
 
     reference_area = results.reference["both_poles"].area_m2

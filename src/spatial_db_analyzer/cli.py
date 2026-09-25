@@ -78,7 +78,7 @@ def summary_table(results: ResultsFile) -> str:
 
     symbols = {
         "correct": "ok",
-        "accepted_but_wrong": "WRONG",
+        "disagrees": "WRONG",
         "rejected": "rej",
         "error": "ERR",
         "no_data": "NONE",

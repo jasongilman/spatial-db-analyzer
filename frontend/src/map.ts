@@ -54,6 +54,8 @@ export interface Scene {
   /** Where to center an orthographic globe. */
   center: Position;
   showSkipped: boolean;
+  /** False draws the geometry alone, for a combination the library never answered. */
+  showPoints: boolean;
 }
 
 const landFeature = feature(
@@ -165,7 +167,9 @@ export class MapView {
 
     this.drawBase(context, path, width, height);
     this.drawGeometry(context, path, scene);
-    this.drawPoints(context, scene);
+    if (scene.showPoints) {
+      this.drawPoints(context, scene);
+    }
   }
 
   private configureProjection(width: number, height: number): void {
@@ -241,7 +245,7 @@ export class MapView {
     if (scene.submitted !== null) {
       context.beginPath();
       path(scene.submitted as unknown as GeoPermissibleObjects);
-      context.fillStyle = "rgba(204, 121, 167, 0.12)";
+      context.fillStyle = "rgba(0, 158, 115, 0.12)";
       context.fill();
       context.strokeStyle = GEOMETRY_COLORS.submitted;
       context.lineWidth = 1.6;
@@ -290,10 +294,11 @@ export class MapView {
       }
 
       const radius = POINT_RADIUS[pointClass];
+      // A false negative is a ring: the color is the stroke, over a white fill.
       const hollow = pointClass === "falseNegative";
-      context.fillStyle = POINT_COLORS[pointClass];
-      context.strokeStyle = "#333333";
-      context.lineWidth = 1;
+      context.fillStyle = hollow ? "#FFFFFF" : POINT_COLORS[pointClass];
+      context.strokeStyle = POINT_COLORS[pointClass];
+      context.lineWidth = 2;
       context.beginPath();
 
       for (let index = 0; index < lons.length; index += 1) {

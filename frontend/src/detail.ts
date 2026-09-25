@@ -9,22 +9,22 @@
 import { select } from "d3-selection";
 import type { BaseType, Selection } from "d3-selection";
 
-import {
-  findResult,
-  findVariant,
-  formatAgreement,
-  formatArea,
-  formatBBox,
-  formatErrorPct,
-} from "./data";
+import { findResult, findVariant, formatArea, formatBBox, formatErrorPct } from "./data";
 import type { Dataset } from "./data";
 import { ringCentroid, ringsOf, toD3Geometry, toDrawableSubmitted } from "./geo";
 import type { Position } from "./geo";
 import { MapView } from "./map";
 import type { ClassifiedPoints, Scene } from "./map";
 import { POINT_CLASS_ORDER } from "./map";
-import { OUTCOME_DESCRIPTIONS, POINT_COLORS, outcomeHasAnswer, outcomeStyle } from "./palette";
-import type { PointClass } from "./palette";
+import {
+  GEOMETRY_COLORS,
+  OUTCOME_DESCRIPTIONS,
+  POINT_COLORS,
+  cellText,
+  outcomeHasAnswer,
+  outcomeStyle,
+} from "./palette";
+import type { Outcome, PointClass } from "./palette";
 import { formatRoute } from "./routing";
 import type { ComboRoute } from "./routing";
 import { requireAt } from "./arrays";
@@ -42,8 +42,11 @@ const POINT_LABELS: Record<PointClass, string> = {
 };
 
 const NO_ANSWER_NOTE =
-  "This library never answered for this polygon, so the points below are ground truth only. " +
-  "None of them is a mark for or against the library.";
+  "This library never answered for this polygon, so there is nothing of its to show on the " +
+  "maps. The reference answer can be shown for comparison; none of it is a mark for or " +
+  "against the library.";
+
+const SHOW_REFERENCE_LABEL = "Show the reference answer for these points";
 
 /**
  * The maps the detail view currently owns.
@@ -69,6 +72,33 @@ function resizeActiveViews(): void {
  */
 export function disposeDetail(): void {
   activeViews = [];
+}
+
+/**
+ * Whether the maps should draw the point grid.
+ *
+ * A combination the library never answered has no measurements, and any dot on
+ * a map reads as one, so its points are hidden unless the viewer asks for the
+ * reference answer.
+ *
+ * @param outcome - The combination's outcome.
+ * @param showReference - Whether the "show the reference answer" toggle is on.
+ * @returns True when the points should be drawn.
+ */
+export function shouldDrawPoints(outcome: Outcome, showReference: boolean): boolean {
+  return outcomeHasAnswer(outcome) || showReference;
+}
+
+/**
+ * The label shown over each map when the library never answered.
+ *
+ * @param systemName - The library's display name.
+ * @param outcome - The combination's outcome.
+ * @returns The label text.
+ */
+function notMeasuredLabel(systemName: string, outcome: Outcome): string {
+  const what = outcome === "error" ? "raised an error" : "rejected this polygon";
+  return `Not measured — ${systemName} ${what}`;
 }
 
 /**
@@ -158,11 +188,13 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
   summary.append("span").attr("class", "chip").text(system.name);
   summary.append("span").attr("class", "chip").text(variant.name);
   summary.append("span").attr("class", `chip badge-${system.semantics}`).text(system.semantics);
+  const text = cellText(result.outcome, result.agreement_pct);
   summary
     .append("span")
-    .attr("class", "chip chip-outcome")
+    .attr("class", style.hatched ? "chip chip-outcome hatched" : "chip chip-outcome")
     .style("background-color", style.color)
-    .text(`${style.label} · ${formatAgreement(result.agreement_pct)}`);
+    .style("color", style.textColor)
+    .text([text.word, text.pct].filter((part) => part !== null).join(" · "));
   summary.append("span").attr("class", "outcome-note").text(OUTCOME_DESCRIPTIONS[result.outcome]);
 
   const layout = root.append("div").attr("class", "detail-layout");
@@ -181,9 +213,11 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
     points,
     center,
     showSkipped: false,
+    showPoints: shouldDrawPoints(result.outcome, false),
   };
 
-  if (!outcomeHasAnswer(result.outcome)) {
+  const answered = outcomeHasAnswer(result.outcome);
+  if (!answered) {
     maps.append("p").attr("class", "maps-note").text(NO_ANSWER_NOTE);
   }
 
@@ -197,7 +231,14 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
           ? "Globe (drag to rotate)"
           : "Equirectangular — a planar library's edges are straight lines here",
       );
-    const canvas = figure.append("canvas").node();
+    const frame = figure.append("div").attr("class", "map-frame");
+    const canvas = frame.append("canvas").node();
+    if (!answered) {
+      frame
+        .append("div")
+        .attr("class", "not-measured")
+        .text(notMeasuredLabel(system.name, result.outcome));
+    }
     if (canvas !== null) {
       const view = new MapView(canvas, kind);
       view.setScene(scene);
@@ -205,7 +246,14 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
     }
   }
 
-  renderMapLegend(maps.append("div").attr("class", "map-legend"), scene, views);
+  const overlays = maps.selectAll<HTMLDivElement, unknown>(".not-measured");
+  renderMapLegend(
+    maps.append("div").attr("class", "map-legend"),
+    scene,
+    views,
+    result.outcome,
+    (visible) => overlays.style("display", visible ? "" : "none"),
+  );
 
   activeViews = views;
   if (!resizeListening) {
@@ -222,7 +270,17 @@ function renderMapLegend<E extends BaseType>(
   legend: Block<E>,
   scene: Scene,
   views: MapView[],
+  outcome: Outcome,
+  setOverlaysVisible: (visible: boolean) => void,
 ): void {
+  const redraw = (): void => {
+    for (const view of views) {
+      // redraw, not setScene: the scene is the same object, and recentering
+      // here would snap a globe the viewer had dragged back to the start.
+      view.redraw();
+    }
+  };
+
   const geometry = legend.append("div").attr("class", "legend-row");
   const truth = geometry.append("span").attr("class", "legend-item");
   truth.append("span").attr("class", "line line-truth");
@@ -230,7 +288,10 @@ function renderMapLegend<E extends BaseType>(
 
   if (scene.submitted !== null) {
     const submitted = geometry.append("span").attr("class", "legend-item");
-    submitted.append("span").attr("class", "line line-submitted");
+    submitted
+      .append("span")
+      .attr("class", "line line-submitted")
+      .style("border-top-color", GEOMETRY_COLORS.submitted);
     submitted.append("span").text("What the library was handed, as the library sees it");
   }
 
@@ -238,35 +299,70 @@ function renderMapLegend<E extends BaseType>(
   // a map where the library never answered is exactly the claim to avoid.
   const present = new Set(scene.points.classes);
   const pointRow = legend.append("div").attr("class", "legend-row");
-  for (const [code, pointClass] of POINT_CLASS_ORDER.entries()) {
-    if (pointClass === "skipped" || !present.has(code)) {
-      continue;
+  const renderPointEntries = (): void => {
+    pointRow.selectAll("*").remove();
+    pointRow.style("display", scene.showPoints ? "" : "none");
+    for (const [code, pointClass] of POINT_CLASS_ORDER.entries()) {
+      if (pointClass === "skipped" || !present.has(code)) {
+        continue;
+      }
+      const item = pointRow.append("span").attr("class", "legend-item");
+      const dot = item.append("span").attr("class", "dot");
+      if (pointClass === "falseNegative") {
+        dot.attr("class", "dot dot-ring").style("border-color", POINT_COLORS[pointClass]);
+      } else {
+        dot.style("background-color", POINT_COLORS[pointClass]);
+      }
+      item.append("span").text(POINT_LABELS[pointClass]);
     }
-    const item = pointRow.append("span").attr("class", "legend-item");
-    item.append("span").attr("class", "dot").style("background-color", POINT_COLORS[pointClass]);
-    item.append("span").text(POINT_LABELS[pointClass]);
+  };
+  renderPointEntries();
+
+  const toggles = legend.append("div").attr("class", "legend-row");
+
+  // Skipped points are points too: their toggle only does anything while the
+  // grid is drawn, so it is shown only then.
+  let skippedToggle: Block<HTMLLabelElement> | null = null;
+  const syncSkippedToggle = (): void => {
+    skippedToggle?.style("display", scene.showPoints ? "" : "none");
+  };
+
+  if (!outcomeHasAnswer(outcome)) {
+    appendToggle(toggles, SHOW_REFERENCE_LABEL, (checked) => {
+      scene.showPoints = shouldDrawPoints(outcome, checked);
+      setOverlaysVisible(!checked);
+      renderPointEntries();
+      syncSkippedToggle();
+      redraw();
+    });
   }
 
-  if (!present.has(POINT_CLASS_ORDER.indexOf("skipped"))) {
-    return;
+  if (present.has(POINT_CLASS_ORDER.indexOf("skipped"))) {
+    skippedToggle = appendToggle(toggles, POINT_LABELS.skipped, (checked) => {
+      scene.showSkipped = checked;
+      redraw();
+    });
+    syncSkippedToggle();
   }
+}
 
-  const toggle = legend.append("label").attr("class", "toggle");
+function appendToggle<E extends BaseType>(
+  row: Block<E>,
+  label: string,
+  onChange: (checked: boolean) => void,
+): Block<HTMLLabelElement> {
+  const toggle: Block<HTMLLabelElement> = row.append("label").attr("class", "toggle");
   toggle
     .append("input")
     .attr("type", "checkbox")
     .on("change", (event: Event) => {
       const input = event.currentTarget;
       if (input instanceof HTMLInputElement) {
-        scene.showSkipped = input.checked;
-        for (const view of views) {
-          // redraw, not setScene: the scene is the same object, and recentering
-          // here would snap a globe the viewer had dragged back to the start.
-          view.redraw();
-        }
+        onChange(input.checked);
       }
     });
-  toggle.append("span").text(POINT_LABELS.skipped);
+  toggle.append("span").text(label);
+  return toggle;
 }
 
 function renderSidePanel<E extends BaseType>(
@@ -280,6 +376,17 @@ function renderSidePanel<E extends BaseType>(
   const reference = dataset.referenceByPolygon.get(route.polygonId);
   if (variant === undefined || system === undefined || result === undefined) {
     return;
+  }
+
+  // On a combination the library never answered, the rejection is the result,
+  // so why it happened comes first.
+  const answered = outcomeHasAnswer(result.outcome);
+  if (!answered) {
+    renderErrors(
+      panel.append("div").attr("class", "side-rejection"),
+      result.validation_errors,
+      result.error_message,
+    );
   }
 
   panel.append("h2").text("What this variant does");
@@ -296,17 +403,8 @@ function renderSidePanel<E extends BaseType>(
   panel.append("h3").text("About this library");
   panel.append("p").attr("class", "muted").text(system.notes);
 
-  if (result.validation_errors.length > 0) {
-    panel.append("h3").text("Validation errors");
-    const list = panel.append("ul").attr("class", "errors");
-    for (const message of result.validation_errors) {
-      list.append("li").append("code").text(message);
-    }
-  }
-
-  if (result.error_message !== null) {
-    panel.append("h3").text("Error");
-    panel.append("pre").attr("class", "errors").text(result.error_message);
+  if (answered) {
+    renderErrors(panel, result.validation_errors, result.error_message);
   }
 
   panel.append("h3").text("Area");
@@ -329,6 +427,25 @@ function renderSidePanel<E extends BaseType>(
   appendTable(panel, bboxRows);
 
   renderSiblingLinks(panel, dataset, route);
+}
+
+function renderErrors<E extends BaseType>(
+  panel: Block<E>,
+  validationErrors: readonly string[],
+  errorMessage: string | null,
+): void {
+  if (validationErrors.length > 0) {
+    panel.append("h3").text("Validation errors");
+    const list = panel.append("ul").attr("class", "errors");
+    for (const message of validationErrors) {
+      list.append("li").append("code").text(message);
+    }
+  }
+
+  if (errorMessage !== null) {
+    panel.append("h3").text("Error");
+    panel.append("pre").attr("class", "errors").text(errorMessage);
+  }
 }
 
 function renderSiblingLinks<E extends BaseType>(
@@ -357,9 +474,15 @@ function renderSiblingLinks<E extends BaseType>(
         variantId: column.variant.id,
       }),
     );
-    link.append("span").attr("class", "dot").style("background-color", style.color);
+    link
+      .append("span")
+      .attr("class", style.hatched ? "dot hatched" : "dot")
+      .style("background-color", style.color);
     link.append("span").text(`${column.system.name} — ${column.variant.name}`);
-    link.append("span").attr("class", "sibling-pct").text(formatAgreement(sibling.agreement_pct));
+    link
+      .append("span")
+      .attr("class", "sibling-pct")
+      .text(cellText(sibling.outcome, sibling.agreement_pct).pct ?? "—");
   }
 }
 

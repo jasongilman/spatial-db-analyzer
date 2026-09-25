@@ -90,6 +90,10 @@ pre {
   font-size: 0.9rem;
 }
 
+.legend-items strong {
+  white-space: nowrap;
+}
+
 .swatch {
   display: inline-block;
   width: 0.85rem;
@@ -176,7 +180,6 @@ pre {
   min-height: 3.1rem;
   padding: 0.35rem 0.5rem;
   border-radius: 4px;
-  color: #ffffff;
   text-decoration: none;
   text-align: center;
 }
@@ -188,6 +191,7 @@ pre {
 }
 
 .cell-pct {
+  white-space: nowrap;
   font-size: 1rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -235,7 +239,6 @@ pre {
 }
 
 .chip-outcome {
-  color: #ffffff;
   border-color: transparent;
   font-weight: 700;
 }
@@ -278,6 +281,27 @@ pre {
   font-size: 0.8rem;
   color: var(--muted);
   margin-bottom: 0.3rem;
+}
+
+.map-frame {
+  position: relative;
+}
+
+/* HTML over the canvas rather than text drawn on it, so it stays sharp and selectable. */
+.not-measured {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 80%;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
 }
 
 .map canvas {
@@ -341,8 +365,25 @@ pre {
   border-top: 2px solid #111111;
 }
 
+/* The color comes from GEOMETRY_COLORS.submitted, set inline. */
 .line-submitted {
-  border-top: 2px dashed #cc79a7;
+  border-top: 2px dashed;
+}
+
+/* A false negative is drawn as a ring on the map, so its legend key is one too. */
+.dot-ring {
+  box-sizing: border-box;
+  border: 2px solid;
+  background-color: #ffffff;
+}
+
+/* The "no data" outcome: a hatch reads as "nothing here". */
+.hatched {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(0, 0, 0, 0.18) 0 2px,
+    transparent 2px 7px
+  );
 }
 
 .toggle {
@@ -361,6 +402,15 @@ pre {
 }
 
 .side-panel h2 {
+  margin-top: 0;
+}
+
+/* On a rejected or errored combination, why comes first. */
+.side-rejection {
+  margin-bottom: 1.5rem;
+}
+
+.side-rejection > h3:first-child {
   margin-top: 0;
 }
 

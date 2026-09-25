@@ -87,7 +87,7 @@ def _score(
     wrong = len(false_positives) + len(false_negatives)
     agreement = 100.0 * (scored_count - wrong) / scored_count
 
-    outcome: Outcome = "correct" if wrong == 0 else "accepted_but_wrong"
+    outcome: Outcome = "correct" if wrong == 0 else "disagrees"
     return (
         outcome,
         agreement,
@@ -319,7 +319,7 @@ def run(
     )
 
     return ResultsFile(
-        schema_version=2,
+        schema_version=3,
         generated_at=datetime.now(UTC),
         grid=config,
         points=points,

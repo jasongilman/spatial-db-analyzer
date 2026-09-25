@@ -29,7 +29,7 @@ def test_the_written_file_validates_as_a_results_file(tmp_path: Path):
 
     assert exit_code == 0
     restored = ResultsFile.model_validate_json(output.read_text(encoding="utf-8"))
-    assert restored.schema_version == 2
+    assert restored.schema_version == 3
     assert len(restored.points) == SMALL_GRID
 
 
@@ -200,4 +200,4 @@ def test_the_json_is_compact_enough_to_ship(tmp_path: Path):
     assert size_mb < 10.0, f"results.json is {size_mb:.1f} MB"
 
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3

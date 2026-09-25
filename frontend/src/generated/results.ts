@@ -8,7 +8,7 @@
 /**
  * Bumped whenever this file's shape changes.
  */
-export type SchemaVersion = 2;
+export type SchemaVersion = 3;
 /**
  * When the run was made, in UTC.
  */
@@ -121,7 +121,7 @@ export type VariantId = string;
 /**
  * Overall verdict; see the outcome table in the Phase 1 plan.
  */
-export type Outcome = "correct" | "accepted_but_wrong" | "rejected" | "error" | "no_data";
+export type Outcome = "correct" | "disagrees" | "rejected" | "error" | "no_data";
 /**
  * Whether the library took the polygon without rejecting it.
  */

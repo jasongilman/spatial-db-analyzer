@@ -5,7 +5,6 @@ import {
   comboKey,
   findResult,
   findVariant,
-  formatAgreement,
   formatArea,
   formatBBox,
   formatErrorPct,
@@ -48,7 +47,7 @@ function result(overrides: Partial<CombinationResult> = {}): CombinationResult {
 }
 
 const file: ResultsFile = {
-  schema_version: 2,
+  schema_version: 3,
   generated_at: "2026-09-20T12:00:00Z",
   grid: { point_count: 3, region: null, edge_tolerance_deg: 0.25 },
   points: [
@@ -133,17 +132,6 @@ describe("findVariant", () => {
 
   it("returns undefined for an unknown system", () => {
     expect(findVariant(file, "nope", "raw")).toBeUndefined();
-  });
-});
-
-describe("formatAgreement", () => {
-  it("renders a missing percentage as an em dash, never as 0%", () => {
-    expect(formatAgreement(null)).toBe("—");
-    expect(formatAgreement(0)).toBe("0.0%");
-  });
-
-  it("shows one decimal place", () => {
-    expect(formatAgreement(99.94)).toBe("99.9%");
   });
 });
 

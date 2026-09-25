@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 LonLat = tuple[float, float]
 """A ``(longitude, latitude)`` pair in degrees."""
 
-Outcome = Literal["correct", "accepted_but_wrong", "rejected", "error", "no_data"]
+Outcome = Literal["correct", "disagrees", "rejected", "error", "no_data"]
 """The verdict for one combination; see the outcome table in the Phase 1 plan.
 
 `no_data` means there was nothing to score: no grid points in the region, or
@@ -268,8 +268,8 @@ class ResultsFile(StrictModel):
     """The whole precomputed results file the front end loads."""
 
     schema_version: Annotated[
-        Literal[2], Field(description="Bumped whenever this file's shape changes.")
-    ] = 2
+        Literal[3], Field(description="Bumped whenever this file's shape changes.")
+    ] = 3
     generated_at: Annotated[datetime, Field(description="When the run was made, in UTC.")]
     grid: GridConfig
     points: Annotated[

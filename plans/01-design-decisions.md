@@ -77,7 +77,7 @@ A test combination is one polygon, run against one system, with or without a wor
 * **Point containment:** agreement with the reference over the point grid. We record the percentage plus the lists of false positives and false negatives, so the front end can draw them.
 * **Area:** the library's reported area compared with the reference's spherical area, where the library reports area in comparable units. Otherwise N/A.
 * **Bounding box:** the library's bounding box compared with the expected geodetic bounding box, where the library exposes one.
-* **Outcome category:** rejected / accepted but wrong / correct. The build also has `error` (an unexpected exception) and `no_data` (no grid point could be scored), which is never shown as a pass.
+* **Outcome category:** rejected / disagrees (accepted, but disagreed with the reference on at least one point) / correct. The build also has `error` (an unexpected exception) and `no_data` (no grid point could be scored), which is never shown as a pass.
 
 ### Point Grid
 

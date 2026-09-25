@@ -8,13 +8,13 @@
 import { select } from "d3-selection";
 import type { BaseType, Selection } from "d3-selection";
 
-import { findResult, formatAgreement } from "./data";
+import { findResult } from "./data";
 import type { Column, Dataset } from "./data";
 import { formatRoute } from "./routing";
-import { OUTCOME_DESCRIPTIONS, OUTCOME_LABELS, outcomeStyle } from "./palette";
+import { OUTCOME_DESCRIPTIONS, OUTCOME_LABELS, cellText, outcomeStyle } from "./palette";
 import type { Outcome } from "./palette";
 
-const OUTCOME_ORDER: Outcome[] = ["correct", "accepted_but_wrong", "rejected", "error", "no_data"];
+const OUTCOME_ORDER: Outcome[] = ["correct", "disagrees", "rejected", "error", "no_data"];
 
 /**
  * Render the summary view into a container.
@@ -81,10 +81,11 @@ function renderLegend<E extends BaseType>(legend: Block<E>): void {
   const items = legend.append("ul").attr("class", "legend-items");
   for (const outcome of OUTCOME_ORDER) {
     const item = items.append("li");
+    const style = outcomeStyle(outcome);
     item
       .append("span")
-      .attr("class", "swatch")
-      .style("background-color", outcomeStyle(outcome).color);
+      .attr("class", style.hatched ? "swatch hatched" : "swatch")
+      .style("background-color", style.color);
     item.append("strong").text(OUTCOME_LABELS[outcome]);
     item.append("span").attr("class", "legend-text").text(OUTCOME_DESCRIPTIONS[outcome]);
   }
@@ -132,9 +133,14 @@ function renderMatrix<E extends BaseType>(wrapper: Block<E>, dataset: Dataset): 
       }
 
       const style = outcomeStyle(result.outcome);
+      const text = cellText(result.outcome, result.agreement_pct);
+      const verdict =
+        result.outcome === "disagrees"
+          ? `${text.pct ?? "—"} of scored points agree with the reference`
+          : style.label;
       const link = cell
         .append("a")
-        .attr("class", "cell-link")
+        .attr("class", style.hatched ? "cell-link hatched" : "cell-link")
         .attr(
           "href",
           formatRoute({
@@ -144,11 +150,16 @@ function renderMatrix<E extends BaseType>(wrapper: Block<E>, dataset: Dataset): 
             variantId: column.variant.id,
           }),
         )
-        .attr("title", `${polygon.name} — ${columnLabel(column)}: ${style.label}`)
-        .style("background-color", style.color);
+        .attr("title", `${polygon.name} — ${columnLabel(column)}: ${verdict}`)
+        .style("background-color", style.color)
+        .style("color", style.textColor);
 
-      link.append("span").attr("class", "cell-pct").text(formatAgreement(result.agreement_pct));
-      link.append("span").attr("class", "cell-outcome").text(style.label);
+      if (text.pct !== null) {
+        link.append("span").attr("class", "cell-pct").text(text.pct);
+      }
+      if (text.word !== null) {
+        link.append("span").attr("class", "cell-outcome").text(text.word);
+      }
     }
   }
 }

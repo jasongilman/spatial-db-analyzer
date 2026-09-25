@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { buildDataset } from "./data";
-import { classifyPoints } from "./detail";
+import { classifyPoints, shouldDrawPoints } from "./detail";
 import { POINT_CLASS_ORDER } from "./map";
 import { requireAt } from "./arrays";
 import type { CombinationResult, ResultsFile } from "./generated/results";
-import type { PointClass } from "./palette";
+import type { Outcome, PointClass } from "./palette";
 
 const polygon = {
   type: "Polygon" as const,
@@ -44,7 +44,7 @@ function result(overrides: Partial<CombinationResult> = {}): CombinationResult {
 
 // Point 0 is inside by the reference, point 1 outside, point 2 too close to score.
 const file: ResultsFile = {
-  schema_version: 2,
+  schema_version: 3,
   generated_at: "2026-09-20T12:00:00Z",
   grid: { point_count: 3, region: null, edge_tolerance_deg: 0.25 },
   points: [
@@ -77,7 +77,7 @@ const file: ResultsFile = {
     result(),
     result({
       variant_id: "fixed",
-      outcome: "accepted_but_wrong",
+      outcome: "disagrees",
       accepted: true,
       validation_errors: [],
       agreement_pct: 50,
@@ -108,5 +108,25 @@ describe("classifyPoints", () => {
     // nothing at all, so calling that "Correct: inside" would credit it for an
     // answer it never gave.
     expect(classesOf("raw")).toEqual(["referenceInside", "referenceOutside", "skipped"]);
+  });
+});
+
+describe("shouldDrawPoints", () => {
+  const cases: [Outcome, boolean, boolean][] = [
+    ["correct", false, true],
+    ["correct", true, true],
+    ["disagrees", false, true],
+    ["disagrees", true, true],
+    ["no_data", false, true],
+    ["no_data", true, true],
+    // The library never answered: no dots unless the viewer asks for the reference.
+    ["rejected", false, false],
+    ["rejected", true, true],
+    ["error", false, false],
+    ["error", true, true],
+  ];
+
+  it.each(cases)("%s with the reference toggle %s draws points: %s", (outcome, show, drawn) => {
+    expect(shouldDrawPoints(outcome, show)).toBe(drawn);
   });
 });

@@ -16,7 +16,7 @@ import type {
 } from "./generated/results";
 
 /** The schema version this front end understands. */
-export const SUPPORTED_SCHEMA_VERSION = 2;
+export const SUPPORTED_SCHEMA_VERSION = 3;
 
 /** One column of the summary matrix: a system paired with one of its variants. */
 export interface Column {
@@ -109,22 +109,6 @@ export function findVariant(
   variantId: string,
 ): Variant | undefined {
   return (file.variants[systemId] ?? []).find((variant) => variant.id === variantId);
-}
-
-/**
- * Format an agreement percentage for display.
- *
- * A missing percentage means the combination was never scored, which is not
- * the same as scoring zero, so it renders as an em dash rather than "0%".
- *
- * @param value - The percentage, or null when the combination was not scored.
- * @returns The formatted string.
- */
-export function formatAgreement(value: number | null): string {
-  if (value === null) {
-    return "—";
-  }
-  return `${value.toFixed(1)}%`;
 }
 
 /**
