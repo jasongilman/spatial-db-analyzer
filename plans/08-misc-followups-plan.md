@@ -35,6 +35,10 @@ Questions to settle:
 
 Ideally hovering over a point would show some kind of information
 
-## 3. Better styling and organization of data on the page
+## 3. Better colors
 
-I'm not a big fan of how things are laid out now. I'd like to do some analysis of a better layout for information that will make it easier for people to understand.
+The color choices on the main page are kind of weird. For non-visually impaired readers I'd like to choose a more pleasing color palette.
+
+## 4. Deployment
+
+Github pages
