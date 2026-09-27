@@ -7,6 +7,8 @@ import {
   findVariant,
   formatArea,
   formatBBox,
+  formatGeneratedDate,
+  formatLonLat,
   formatErrorPct,
 } from "./data";
 import type { CombinationResult, ResultsFile } from "./generated/results";
@@ -197,5 +199,22 @@ describe("formatBBox", () => {
     expect(formatBBox({ west: 160, south: -20, east: -160, north: 20 })).toContain(
       "crosses the antimeridian",
     );
+  });
+});
+
+describe("formatLonLat", () => {
+  it("gives latitude first, with hemisphere letters and one decimal", () => {
+    expect(formatLonLat(-71.94, 12.41)).toBe("12.4°N, 71.9°W");
+    expect(formatLonLat(115.27, -59.38)).toBe("59.4°S, 115.3°E");
+  });
+});
+
+describe("formatGeneratedDate", () => {
+  it("keeps the date of an ISO timestamp", () => {
+    expect(formatGeneratedDate("2026-09-25T21:11:50.168410Z")).toBe("2026-09-25");
+  });
+
+  it("passes anything else through", () => {
+    expect(formatGeneratedDate("yesterday")).toBe("yesterday");
   });
 });

@@ -29,8 +29,12 @@ where those rules give a different answer.
 Six polygons: an ordinary box, one covering each pole, one containing both poles, one crossing
 the antimeridian, and a wide band of latitude.
 
+**Live site: <https://jasongilman.github.io/spatial-db-analyzer/>**
+
 Results are precomputed into `frontend/public/results.json` and committed. The site is static:
-there is no backend at runtime and nothing is deployed.
+there is no backend at runtime. A GitHub Actions workflow (`.github/workflows/pages.yml`) builds
+it and publishes it to GitHub Pages on every push to `main`. It ships the committed
+`results.json` as it is; regenerating results stays a deliberate, reviewed commit.
 
 ## Prerequisites
 

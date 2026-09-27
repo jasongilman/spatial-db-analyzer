@@ -1,6 +1,6 @@
 # Misc Follow-ups Plan: Rejected Geometry, Point Hovers, Colors, Deployment
 
-> **Status: not started.** The last plan. It follows [05](05-clarity-fixes-plan.md),
+> **Status: implemented, awaiting Jason's verification.** The last plan. It follows [05](05-clarity-fixes-plan.md),
 > [06](06-map-interaction-plan.md) and [07](07-explanatory-pages-plan.md), and builds on 06's map
 > renderer and legend and 05's palette.
 
@@ -63,6 +63,9 @@ changes.
 9. *Confirmed (Jason):* **Shade "below 100%" cells by agreement** (C). Today 99.9% and 40% look
    the same. The chosen palette's `disagrees` hue becomes a ramp from light (near 100%) to strong
    (low agreement), and the text color flips where the background gets dark.
+
+10. *Confirmed (Jason), at the C checkpoint:* **Keep the current Okabe-Ito palette.** It passes the
+    color-blind check, so there is no toggle. C reduces to the agreement ramp (decision 9).
 
 ## A. Built-but-invalid combinations
 
@@ -250,3 +253,41 @@ The site is static and `results.json` is committed, so deployment is a build and
    toggle, switch it, reload, and check the figure captions still make sense.
 5. After merge, open <https://jasongilman.github.io/spatial-db-analyzer/>, follow a deep link such as `#/combo/wide/shapely/raw`, and
    check the footer date.
+
+## Implementation notes
+
+Differences from the plan above, and choices it left open.
+
+* **Order.** D's code was built before C, while waiting on the palette pick. Nothing deploys until
+  a push to `main`, so the first public version still has everything in it.
+* **A.** `scripts/generate_results.sh` was not rerun. `results.json` holds no field descriptions,
+  so the reworded `accepted` changes only `frontend/src/generated/results.ts`; a rerun would
+  only have churned timings and `generated_at`. The built-but-invalid note replaces the no-answer
+  note outright, so those four pages no longer point at the grey reference layers. The shared
+  wording lives in `noAnswerReason` in `detail.ts`, used by the map label and the hover card.
+* **B.** The card was reworded after Jason's first look: the "Reference / library / verdict"
+  lines read as confusing, especially on the reference column. It is now two lines, the point
+  and its coordinates, then plain sentences: "This point is inside the polygon. The library
+  correctly marks it as inside." (or "wrongly marks it as outside", or "gave no answer: it
+  rejected this polygon"). The reference column shows only the first sentence, since it defines
+  the right answer. A skipped point says it is within the edge tolerance and not counted, since
+  the results file keeps no answer for it. The card no longer reuses the legend labels. Picking is `nearestPoint` in `map.ts` (unit tested);
+  `MapView` takes an optional fifth `onHover` argument, so the explanatory figures do no picking.
+  Only mouse and pen hover; a touch shows the card on `pointerup` within 6 px of `pointerdown`.
+  Switching any legend layer clears the hover.
+* **C.** The palette stays Okabe-Ito (decision 10), so no figure captions changed. New in
+  `palette.ts`: `disagreesColor`, `disagreesTextColor`, `disagreesGradient`, `readableTextColor`
+  and `contrastRatio`. `outcomeStyle` takes an optional agreement, which is how the matrix cells,
+  the libraries strip (through `appendOutcomeCell`), the detail chip and the sibling dots pick up
+  the ramp. The ramp interpolates in CIELAB from `#FCC5A6` (vermillion at 36% over white) to
+  `#D55E00`, positioned by the error share raised to the 0.4 power, so 99.4% and 96% look
+  different. Near-black text beats white at every point on this ramp (4.5:1 at the strong end
+  against white's 3.9:1), so the text never actually flips. `OUTCOME_TEXT_COLORS.disagrees`
+  changed from white to near-black to match, and a test now holds every outcome's text at WCAG
+  4.5:1 or better. The ramp's light end is closer to the no-data grey than the check allows
+  (ΔE about 20 in normal vision); no data keeps its hatch, so that pair is not tested.
+* **D.** Actions are pinned to the current majors: `checkout@v7`, `setup-node@v7`,
+  `upload-pages-artifact@v5`, `deploy-pages@v5`. The favicon needed no change: with `base: "./"`,
+  Vite writes it as `./favicon.svg`. The footer is hidden until results load, so a load error
+  shows no stale date.
+

@@ -13,7 +13,13 @@ import type { Column, Dataset } from "./data";
 import type { TestPolygon } from "./generated/results";
 import { appendHelp } from "./help";
 import { formatRoute } from "./routing";
-import { OUTCOME_DESCRIPTIONS, OUTCOME_LABELS, cellText, outcomeStyle } from "./palette";
+import {
+  OUTCOME_DESCRIPTIONS,
+  OUTCOME_LABELS,
+  cellText,
+  disagreesGradient,
+  outcomeStyle,
+} from "./palette";
 import type { Outcome } from "./palette";
 
 const OUTCOME_ORDER: Outcome[] = ["correct", "disagrees", "rejected", "error", "no_data"];
@@ -87,10 +93,14 @@ function renderLegend<E extends BaseType>(legend: Block<E>): void {
 
 function appendOutcomeSwatch<E extends BaseType>(parent: Block<E>, outcome: Outcome): void {
   const style = outcomeStyle(outcome);
-  parent
+  const swatch = parent
     .append("span")
     .attr("class", style.hatched ? "swatch hatched" : "swatch")
     .style("background-color", style.color);
+  if (outcome === "disagrees") {
+    // "Below 100%" cells are shaded by agreement, so its key is the whole ramp.
+    swatch.attr("class", "swatch swatch-ramp").style("background-image", disagreesGradient());
+  }
 }
 
 /**
@@ -171,7 +181,7 @@ export function appendOutcomeCell<E extends BaseType>(
     return;
   }
 
-  const style = outcomeStyle(result.outcome);
+  const style = outcomeStyle(result.outcome, result.agreement_pct);
   const text = cellText(result.outcome, result.agreement_pct);
   const verdict =
     result.outcome === "disagrees"

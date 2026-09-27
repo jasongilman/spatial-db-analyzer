@@ -140,6 +140,30 @@ export function formatErrorPct(value: number | null): string {
 }
 
 /**
+ * The date a results file was generated, for the site footer.
+ *
+ * @param generatedAt - The file's `generated_at` timestamp, in ISO 8601 UTC.
+ * @returns The date as "2026-09-25", or the input unchanged if it is not a timestamp.
+ */
+export function formatGeneratedDate(generatedAt: string): string {
+  const match = /^\d{4}-\d{2}-\d{2}/.exec(generatedAt);
+  return match === null ? generatedAt : match[0];
+}
+
+/**
+ * Format a position as "12.4°N, 71.9°W", latitude first.
+ *
+ * @param lon - Longitude in degrees.
+ * @param lat - Latitude in degrees.
+ * @returns The formatted string.
+ */
+export function formatLonLat(lon: number, lat: number): string {
+  const part = (value: number, positive: string, negative: string): string =>
+    `${Math.abs(value).toFixed(1)}°${value < 0 ? negative : positive}`;
+  return `${part(lat, "N", "S")}, ${part(lon, "E", "W")}`;
+}
+
+/**
  * Format a bounding box, noting when it crosses the antimeridian.
  *
  * @param box - The box, or null when the library exposes none.

@@ -4,7 +4,7 @@
 
 import "./style.css";
 
-import { loadResults } from "./data";
+import { formatGeneratedDate, loadResults } from "./data";
 import type { Dataset } from "./data";
 import { disposeDetail, renderDetail } from "./detail";
 import { disposeFigures } from "./figures";
@@ -50,7 +50,9 @@ function buildShell(app: HTMLElement): HTMLElement {
 
   header.append(title, nav);
   const page = document.createElement("main");
-  app.append(header, page);
+  const footer = document.createElement("footer");
+  footer.className = "site-footer";
+  app.append(header, page, footer);
   return page;
 }
 
@@ -122,6 +124,11 @@ async function main(): Promise<void> {
 
   try {
     const dataset = await loadResults(import.meta.env.BASE_URL);
+    // So a visitor can tell how old the numbers are.
+    const footer = app.querySelector(".site-footer");
+    if (footer !== null) {
+      footer.textContent = `Results generated ${formatGeneratedDate(dataset.file.generated_at)}`;
+    }
     render(app, container, dataset);
     window.addEventListener("hashchange", () => {
       render(app, container, dataset);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DISAGREES_LIGHT,
   GEOMETRY_COLORS,
   OUTCOME_COLORS,
   OUTCOME_DESCRIPTIONS,
@@ -8,8 +9,13 @@ import {
   OUTCOME_TEXT_COLORS,
   POINT_COLORS,
   cellText,
+  contrastRatio,
+  disagreesColor,
+  disagreesGradient,
+  disagreesTextColor,
   outcomeHasAnswer,
   outcomeStyle,
+  readableTextColor,
 } from "./palette";
 import type { Outcome } from "./palette";
 
@@ -25,7 +31,7 @@ describe("outcomeStyle", () => {
     });
     expect(outcomeStyle("disagrees")).toEqual({
       color: "#D55E00",
-      textColor: "#FFFFFF",
+      textColor: "#1A1A1A",
       label: "Below 100%",
       hatched: false,
     });
@@ -47,6 +53,13 @@ describe("outcomeStyle", () => {
       label: "No data",
       hatched: true,
     });
+  });
+
+  it("shades a disagreement by its agreement when given one", () => {
+    expect(outcomeStyle("disagrees", 50).color).toBe(disagreesColor(50));
+    expect(outcomeStyle("disagrees", 50).textColor).toBe(disagreesTextColor(50));
+    // Other outcomes ignore the percentage.
+    expect(outcomeStyle("correct", 100).color).toBe(OUTCOME_COLORS.correct);
   });
 
   it("covers every outcome", () => {
@@ -226,5 +239,69 @@ describe("color separation", () => {
 
   it("keeps the outcome colors apart", () => {
     expect(closestPairs(OUTCOME_COLORS)).toEqual([]);
+  });
+});
+
+describe("the agreement ramp", () => {
+  const lightness = (hex: string): number => toLab(toLinear(hex))[0];
+
+  it("runs from the light end near 100% to the full disagrees color at 0%", () => {
+    expect(disagreesColor(100)).toBe(DISAGREES_LIGHT);
+    expect(disagreesColor(0)).toBe(OUTCOME_COLORS.disagrees);
+  });
+
+  it("darkens steadily as agreement falls, so 99.4% and 96% look different", () => {
+    const shades = [99.9, 99.4, 96, 88, 65.7, 0.9].map((pct) => lightness(disagreesColor(pct)));
+    for (let i = 1; i < shades.length; i += 1) {
+      expect(shades[i]).toBeLessThan(shades[i - 1] ?? 0);
+    }
+    expect(lightness(disagreesColor(99.4)) - lightness(disagreesColor(96))).toBeGreaterThan(3);
+  });
+
+  it("clamps out-of-range input to the ends", () => {
+    expect(disagreesColor(120)).toBe(DISAGREES_LIGHT);
+    expect(disagreesColor(-5)).toBe(OUTCOME_COLORS.disagrees);
+  });
+
+  it("keeps both ends apart from correct and rejected", () => {
+    for (const end of [DISAGREES_LIGHT, OUTCOME_COLORS.disagrees]) {
+      expect(
+        closestPairs({ end, correct: OUTCOME_COLORS.correct, rejected: OUTCOME_COLORS.rejected }),
+      ).toEqual([]);
+    }
+  });
+
+  it("keeps its text readable all the way along", () => {
+    for (let pct = 0; pct <= 100; pct += 1) {
+      expect(contrastRatio(disagreesColor(pct), disagreesTextColor(pct))).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+  });
+
+  it("gives the legend a gradient from the light end", () => {
+    expect(disagreesGradient()).toMatch(
+      new RegExp(`^linear-gradient\\(90deg, ${DISAGREES_LIGHT}, `),
+    );
+  });
+});
+
+describe("text contrast", () => {
+  it("measures WCAG contrast the standard way", () => {
+    expect(contrastRatio("#FFFFFF", "#000000")).toBeCloseTo(21, 5);
+    expect(contrastRatio("#777777", "#777777")).toBeCloseTo(1, 5);
+  });
+
+  it("picks white on dark backgrounds and near-black on light ones", () => {
+    expect(readableTextColor("#333333")).toBe("#FFFFFF");
+    expect(readableTextColor("#F0E442")).toBe("#1A1A1A");
+  });
+
+  it("keeps every outcome's text readable over its background", () => {
+    for (const outcome of OUTCOMES) {
+      expect(
+        contrastRatio(OUTCOME_COLORS[outcome], OUTCOME_TEXT_COLORS[outcome]),
+      ).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

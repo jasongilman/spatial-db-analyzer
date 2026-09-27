@@ -155,7 +155,7 @@ export type VariantId = string;
  */
 export type Outcome = "correct" | "disagrees" | "rejected" | "error" | "no_data";
 /**
- * Whether the library took the polygon without rejecting it.
+ * Whether the library built the polygon at all. It can be true on a rejected combination whose own validation reported errors.
  */
 export type Accepted = boolean;
 /**

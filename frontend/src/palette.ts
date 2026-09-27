@@ -47,7 +47,9 @@ export type Outcome = keyof typeof OUTCOME_COLORS;
 /** Text color over each outcome's background. White is unreadable on yellow and light grey. */
 export const OUTCOME_TEXT_COLORS: Record<Outcome, string> = {
   correct: "#FFFFFF",
-  disagrees: "#FFFFFF",
+  // Near-black reads better than white on vermillion (4.5:1 against 3.9:1),
+  // and on every lighter shade of the agreement ramp.
+  disagrees: "#1A1A1A",
   rejected: "#1A1A1A",
   error: "#FFFFFF",
   no_data: "#1A1A1A",
@@ -99,6 +101,138 @@ export const GEOMETRY_COLORS = {
   sphere: "#FFFFFF",
 } as const;
 
+// ---------- The agreement ramp ----------
+//
+// A "below 100%" cell is shaded by how much it got right, so 99.9% and 40% no
+// longer look alike: light vermillion near 100%, the full `disagrees` color
+// near 0%. The shades are interpolated in CIELAB, where equal steps look equal.
+
+/** The ramp's light end, near 100% agreement: `disagrees` at 36% strength over white. */
+export const DISAGREES_LIGHT = "#FCC5A6";
+
+/** Near-black text, used wherever white would be harder to read. */
+const DARK_TEXT = "#1A1A1A";
+
+type Triple = [number, number, number];
+
+/** D65 reference white, for normalizing XYZ. */
+const WHITE_XYZ: Triple = [0.95047, 1, 1.08883];
+
+function hexToLinear(hex: string): Triple {
+  const channel = (offset: number): number => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return [channel(1), channel(3), channel(5)];
+}
+
+function linearToHex(rgb: Triple): string {
+  const encode = (value: number): string => {
+    const clamped = Math.min(1, Math.max(0, value));
+    const gamma = clamped <= 0.0031308 ? clamped * 12.92 : 1.055 * clamped ** (1 / 2.4) - 0.055;
+    return Math.round(gamma * 255)
+      .toString(16)
+      .toUpperCase()
+      .padStart(2, "0");
+  };
+  return `#${rgb.map(encode).join("")}`;
+}
+
+function hexToLab(hex: string): Triple {
+  const [r, g, b] = hexToLinear(hex);
+  const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / WHITE_XYZ[0];
+  const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) / WHITE_XYZ[1];
+  const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / WHITE_XYZ[2];
+  const f = (t: number): number => (t > 216 / 24389 ? Math.cbrt(t) : ((24389 / 27) * t + 16) / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+function labToHex([l, a, b]: Triple): string {
+  const fy = (l + 16) / 116;
+  const fx = fy + a / 500;
+  const fz = fy - b / 200;
+  const inverse = (t: number): number =>
+    t ** 3 > 216 / 24389 ? t ** 3 : (116 * t - 16) / (24389 / 27);
+  const x = inverse(fx) * WHITE_XYZ[0];
+  const y = inverse(fy) * WHITE_XYZ[1];
+  const z = inverse(fz) * WHITE_XYZ[2];
+  return linearToHex([
+    3.2406 * x - 1.5372 * y - 0.4986 * z,
+    -0.9689 * x + 1.8758 * y + 0.0415 * z,
+    0.0557 * x - 0.204 * y + 1.057 * z,
+  ]);
+}
+
+/**
+ * WCAG 2 contrast ratio between two colors.
+ *
+ * @param first - One color, as #RRGGBB.
+ * @param second - The other.
+ * @returns The ratio, from 1 to 21.
+ */
+export function contrastRatio(first: string, second: string): number {
+  const luminance = (hex: string): number => {
+    const [r, g, b] = hexToLinear(hex);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [light, dark] = [luminance(first), luminance(second)].sort((p, q) => q - p);
+  return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
+}
+
+/**
+ * White or near-black, whichever reads better over a background.
+ *
+ * @param background - The background, as #RRGGBB.
+ * @returns The text color.
+ */
+export function readableTextColor(background: string): string {
+  return contrastRatio(background, "#FFFFFF") >= contrastRatio(background, DARK_TEXT)
+    ? "#FFFFFF"
+    : DARK_TEXT;
+}
+
+/**
+ * The background for a "below 100%" result at some agreement.
+ *
+ * The position along the ramp is the error share raised to the 0.4 power.
+ * Linear in agreement, 99.4% and 96% would be nearly the same pale shade,
+ * though one is seven times as wrong as the other.
+ *
+ * @param agreementPct - The share of scored points the library got right, 0 to 100.
+ * @returns The shade, as #RRGGBB.
+ */
+export function disagreesColor(agreementPct: number): string {
+  const errorShare = Math.min(100, Math.max(0, 100 - agreementPct)) / 100;
+  const t = errorShare ** 0.4;
+  const light = hexToLab(DISAGREES_LIGHT);
+  const strong = hexToLab(OUTCOME_COLORS.disagrees);
+  return labToHex([
+    light[0] + (strong[0] - light[0]) * t,
+    light[1] + (strong[1] - light[1]) * t,
+    light[2] + (strong[2] - light[2]) * t,
+  ]);
+}
+
+/**
+ * The text color over {@link disagreesColor} at the same agreement.
+ *
+ * @param agreementPct - The share of scored points the library got right.
+ * @returns The text color.
+ */
+export function disagreesTextColor(agreementPct: number): string {
+  return readableTextColor(disagreesColor(agreementPct));
+}
+
+/**
+ * A CSS gradient across the whole ramp, for the legend swatch.
+ *
+ * @returns A `linear-gradient(...)` value, light (100%) on the left.
+ */
+export function disagreesGradient(): string {
+  const stops = [100, 99, 96, 88, 66, 30, 0].map((pct) => disagreesColor(pct));
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
+
 /** How to draw one outcome. */
 export interface OutcomeStyle {
   color: string;
@@ -112,9 +246,19 @@ export interface OutcomeStyle {
  * Pick the style for one outcome.
  *
  * @param outcome - The combination's outcome.
+ * @param agreementPct - The agreement, which shades a `disagrees` result along
+ *   the ramp. Left out or null, `disagrees` gets its full color.
  * @returns Its colors, label and hatch flag.
  */
-export function outcomeStyle(outcome: Outcome): OutcomeStyle {
+export function outcomeStyle(outcome: Outcome, agreementPct: number | null = null): OutcomeStyle {
+  if (outcome === "disagrees" && agreementPct !== null) {
+    return {
+      color: disagreesColor(agreementPct),
+      textColor: disagreesTextColor(agreementPct),
+      label: OUTCOME_LABELS.disagrees,
+      hatched: false,
+    };
+  }
   return {
     color: OUTCOME_COLORS[outcome],
     textColor: OUTCOME_TEXT_COLORS[outcome],

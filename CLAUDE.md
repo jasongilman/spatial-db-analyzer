@@ -8,7 +8,12 @@ A comparison of how spatial libraries handle **geodetic polygons** (great-circle
 antimeridian). A Python pipeline runs every polygon × system × variant combination, scores
 point-in-polygon answers against our own spherical reference, and writes
 `frontend/public/results.json`. A static Vite + TypeScript site reads that file. There is no
-backend and nothing is deployed. `results.json` is committed.
+backend. `results.json` is committed.
+
+The site is live at <https://jasongilman.github.io/spatial-db-analyzer/>.
+`.github/workflows/pages.yml` deploys it on every push to `main`: front-end lint, vitest, build,
+then publish `frontend/dist`. CI never regenerates `results.json`; the committed file ships.
+`vite.config.ts` sets `base: "./"` so the build works under the Pages subpath.
 
 `plans/` holds the project's design record. `plans/01-design-decisions.md` overrides
 `plans/00-initial-project-description.md` where they disagree; read `01` before changing scope,

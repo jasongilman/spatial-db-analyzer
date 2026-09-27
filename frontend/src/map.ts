@@ -112,6 +112,62 @@ export interface Interaction {
   rotate: boolean;
 }
 
+/** A point under the pointer: its index into the grid, and where it is on the canvas. */
+export interface PointHit {
+  index: number;
+  x: number;
+  y: number;
+}
+
+/** How near, in CSS pixels, the pointer has to be for a point to count as hovered. */
+export const HOVER_RADIUS_PX = 8;
+
+/** How far, in CSS pixels, a touch can move and still count as a tap. */
+const TAP_SLOP_PX = 6;
+
+/**
+ * Find the drawn point nearest a screen position.
+ *
+ * A linear scan: 5,000 points per pointer move is well under a millisecond, so
+ * a spatial index would only add code.
+ *
+ * @param projected - Each point's screen x and y, interleaved, with NaN x for a
+ *   point that is not on the canvas.
+ * @param classes - Each point's class code.
+ * @param drawnCodes - Which class codes are currently drawn. Only these can be picked.
+ * @param x - The pointer's x, in CSS pixels.
+ * @param y - The pointer's y, in CSS pixels.
+ * @param maxDistance - How far away a point can be and still be picked.
+ * @returns The nearest point within reach, or null.
+ */
+export function nearestPoint(
+  projected: Float64Array,
+  classes: Uint8Array,
+  drawnCodes: ReadonlySet<number>,
+  x: number,
+  y: number,
+  maxDistance: number = HOVER_RADIUS_PX,
+): PointHit | null {
+  let best: PointHit | null = null;
+  let bestSquared = maxDistance * maxDistance;
+  for (let index = 0; index < classes.length; index += 1) {
+    if (!drawnCodes.has(codeAt(classes, index))) {
+      continue;
+    }
+    const px = numberAt(projected, index * 2);
+    if (Number.isNaN(px)) {
+      continue;
+    }
+    const py = numberAt(projected, index * 2 + 1);
+    const squared = (px - x) ** 2 + (py - y) ** 2;
+    if (squared <= bestSquared) {
+      bestSquared = squared;
+      best = { index, x: px, y: py };
+    }
+  }
+  return best;
+}
+
 /** The detail view's maps: everything on. */
 const FULL_INTERACTION: Interaction = { zoom: true, rotate: true };
 
@@ -226,6 +282,10 @@ export class MapView {
   private rotation: [number, number] = [0, 0];
   private transform: ZoomTransform = zoomIdentity;
   private projected = new Float64Array(0);
+  private readonly onHover: ((hit: PointHit | null) => void) | null;
+  private highlighted: number | null = null;
+  /** True while a drag or zoom gesture is under way, when hovering is off. */
+  private gesturing = false;
 
   /**
    * @param canvas - The canvas to draw on.
@@ -234,22 +294,45 @@ export class MapView {
    *   zoomed or rotated away from where {@link setScene} put it, so the caller
    *   can show a reset control only when there is something to reset.
    * @param interaction - Which pointer gestures the map answers to.
+   * @param onHover - Called with the point under the pointer (or tapped), and
+   *   with null when there is none or a gesture starts. Left out, the map does
+   *   no picking at all.
    */
   constructor(
     canvas: HTMLCanvasElement,
     kind: ProjectionKind,
     onViewChange: (moved: boolean) => void = () => undefined,
     interaction: Interaction = FULL_INTERACTION,
+    onHover: ((hit: PointHit | null) => void) | null = null,
   ) {
     this.canvas = canvas;
     this.kind = kind;
     this.onViewChange = onViewChange;
     this.interaction = interaction;
+    this.onHover = onHover;
     this.projection = kind === "orthographic" ? geoOrthographic() : geoEquirectangular();
     this.zoomBehavior = this.enableZoom();
     if (kind === "orthographic" && interaction.rotate) {
       this.enableDrag();
     }
+    if (onHover !== null) {
+      this.enableHover(onHover);
+    }
+  }
+
+  /**
+   * Ring one point, or none, and redraw if that changed.
+   *
+   * The caller decides, so that both maps can ring the same point.
+   *
+   * @param index - The point's index into the grid, or null for none.
+   */
+  setHighlight(index: number | null): void {
+    if (index === this.highlighted) {
+      return;
+    }
+    this.highlighted = index;
+    this.render();
   }
 
   /**
@@ -259,6 +342,7 @@ export class MapView {
    */
   setScene(scene: Scene): void {
     this.scene = scene;
+    this.highlighted = null;
     this.initialRotation = [-scene.center[0], -scene.center[1]];
     this.projected = new Float64Array(scene.points.lons.length * 2);
     this.resetView();
@@ -310,9 +394,15 @@ export class MapView {
   private enableZoom(): ZoomBehavior<HTMLCanvasElement, unknown> {
     const behavior = zoom<HTMLCanvasElement, unknown>()
       .scaleExtent([1, MAX_ZOOM])
+      .on("start", () => {
+        this.startGesture();
+      })
       .on("zoom", (event: { transform: ZoomTransform }) => {
         this.transform = event.transform;
         this.render();
+      })
+      .on("end", () => {
+        this.gesturing = false;
       });
 
     if (this.kind === "orthographic") {
@@ -355,10 +445,83 @@ export class MapView {
         const yaw = startRotation[0] + (event.x - start[0]) * sensitivity;
         const pitch = startRotation[1] - (event.y - start[1]) * sensitivity;
         this.rotation = [yaw, Math.max(-90, Math.min(90, pitch))];
+        // A press that never moves is a click or a tap, not a drag, so the
+        // hover only goes once the globe actually turns.
+        this.startGesture();
         this.render();
+      })
+      .on("end", () => {
+        this.gesturing = false;
       });
 
     select(this.canvas).call(behavior);
+  }
+
+  /** Hide the hover for a drag or zoom: the point under the pointer is moving. */
+  private startGesture(): void {
+    if (this.gesturing) {
+      return;
+    }
+    this.gesturing = true;
+    this.onHover?.(null);
+  }
+
+  private enableHover(onHover: (hit: PointHit | null) => void): void {
+    const pick = (event: PointerEvent): PointHit | null => {
+      const scene = this.scene;
+      if (scene === null) {
+        return null;
+      }
+      const drawn = new Set<number>();
+      POINT_CLASS_ORDER.forEach((pointClass, code) => {
+        if (scene.visible[pointClass]) {
+          drawn.add(code);
+        }
+      });
+      const bounds = this.canvas.getBoundingClientRect();
+      return nearestPoint(
+        this.projected,
+        scene.points.classes,
+        drawn,
+        event.clientX - bounds.left,
+        event.clientY - bounds.top,
+      );
+    };
+
+    // A mouse or pen hovers. A finger has no hover, so a tap shows the card
+    // instead, and a tap on empty map hides it.
+    let down: [number, number] | null = null;
+    this.canvas.addEventListener("pointermove", (event) => {
+      if (event.pointerType === "touch") {
+        return;
+      }
+      if (event.buttons !== 0 || this.gesturing) {
+        onHover(null);
+        return;
+      }
+      onHover(pick(event));
+    });
+    this.canvas.addEventListener("pointerleave", (event) => {
+      if (event.pointerType !== "touch") {
+        onHover(null);
+      }
+    });
+    this.canvas.addEventListener("pointerdown", (event) => {
+      down = event.isPrimary ? [event.clientX, event.clientY] : null;
+    });
+    this.canvas.addEventListener("pointerup", (event) => {
+      if (event.pointerType !== "touch" || down === null) {
+        return;
+      }
+      const moved = Math.hypot(event.clientX - down[0], event.clientY - down[1]);
+      down = null;
+      if (moved <= TAP_SLOP_PX) {
+        onHover(pick(event));
+      }
+    });
+    this.canvas.addEventListener("pointercancel", () => {
+      down = null;
+    });
   }
 
   private render(): void {
@@ -388,6 +551,7 @@ export class MapView {
     this.drawBase(context, path, width, height);
     this.drawGeometry(context, path, scene);
     this.drawPoints(context, scene, width, height);
+    this.drawHighlight(context, scene);
     this.drawOverlays(context, path, scene.overlays ?? []);
     // Boxes go over the points: under them, a dotted line vanishes into the grid.
     this.drawBBoxes(context, path, scene);
@@ -546,6 +710,24 @@ export class MapView {
     context.lineCap = "butt";
   }
 
+  private drawHighlight(context: CanvasRenderingContext2D, scene: Scene): void {
+    const index = this.highlighted;
+    if (index === null || index >= scene.points.classes.length) {
+      return;
+    }
+    // A point on the globe's far side, or off a zoomed canvas, has no ring.
+    const x = numberAt(this.projected, index * 2);
+    if (Number.isNaN(x)) {
+      return;
+    }
+    const y = numberAt(this.projected, index * 2 + 1);
+    context.beginPath();
+    context.arc(x, y, 6, 0, Math.PI * 2);
+    context.strokeStyle = GEOMETRY_COLORS.truth;
+    context.lineWidth = 1.5;
+    context.stroke();
+  }
+
   private drawPoints(
     context: CanvasRenderingContext2D,
     scene: Scene,
@@ -553,6 +735,8 @@ export class MapView {
     height: number,
   ): void {
     if (!POINT_CLASS_ORDER.some((pointClass) => scene.visible[pointClass])) {
+      // Nothing drawn, so nothing can be picked or ringed.
+      this.projected.fill(Number.NaN);
       return;
     }
     const { lons, lats, classes } = scene.points;

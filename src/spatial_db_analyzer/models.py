@@ -246,7 +246,13 @@ class CombinationResult(StrictModel):
         Field(description="Overall verdict; see the outcome table in the Phase 1 plan."),
     ]
     accepted: Annotated[
-        bool, Field(description="Whether the library took the polygon without rejecting it.")
+        bool,
+        Field(
+            description=(
+                "Whether the library built the polygon at all. It can be true on a rejected "
+                "combination whose own validation reported errors."
+            )
+        ),
     ]
     validation_errors: Annotated[
         tuple[str, ...], Field(description="Verbatim messages from the library's own validation.")

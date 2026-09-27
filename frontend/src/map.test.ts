@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAX_ZOOM, rotationSensitivity, zoomedScale, zoomedTranslate } from "./map";
+import { MAX_ZOOM, nearestPoint, rotationSensitivity, zoomedScale, zoomedTranslate } from "./map";
 
 describe("zoomedScale", () => {
   it("is the fitted scale when not zoomed", () => {
@@ -31,5 +31,28 @@ describe("rotationSensitivity", () => {
 
   it("slows in proportion to the zoom", () => {
     expect(rotationSensitivity(10)).toBeCloseTo(0.04);
+  });
+});
+
+describe("nearestPoint", () => {
+  // Three points at x = 10, 20 and 30 on one row, and a fourth culled (NaN).
+  const projected = Float64Array.from([10, 0, 20, 0, 30, 0, Number.NaN, 0]);
+  const classes = Uint8Array.from([0, 1, 0, 0]);
+
+  it("picks the nearest drawn point within reach", () => {
+    expect(nearestPoint(projected, classes, new Set([0, 1]), 18, 1)).toEqual({
+      index: 1,
+      x: 20,
+      y: 0,
+    });
+  });
+
+  it("ignores points of a class that is not drawn", () => {
+    expect(nearestPoint(projected, classes, new Set([0]), 15, 1)?.index).toBe(0);
+  });
+
+  it("finds nothing beyond the hover radius, or where a point is culled", () => {
+    expect(nearestPoint(projected, classes, new Set([0, 1]), 50, 0)).toBeNull();
+    expect(nearestPoint(projected, classes, new Set([0, 1]), 10, 20)).toBeNull();
   });
 });

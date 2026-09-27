@@ -6,7 +6,7 @@ This document records the decisions made after reviewing [00-initial-project-des
 
 * **Containment, not intersection.** The core question is "does this library correctly decide whether a point is inside a geodetic polygon?" Polygon-to-polygon intersection is in the parking lot.
 * **Correct means spherical.** The expected answer assumes a spherical Earth, with edges following great-circle arcs between vertices. A library with planar semantics is not "buggy," but it does not match this definition. The display should explain that difference.
-* **No custom polygons in the first version.** The first version is a static website with precomputed results. There is no backend at runtime and no deployment yet.
+* **No custom polygons in the first version.** The first version is a static website with precomputed results. There is no backend at runtime. Phase 1 is deployed to GitHub Pages (plan 08).
 * **No polygons with holes.** No invalid polygons yet (parking lot).
 * **The time budget in `00` is a budget on Jason's time**, meaning review, decisions and checking results, not on implementation wall-clock time. Plans should therefore minimize review cycles and pin expected values up front, rather than cutting scope to save typing.
 
@@ -128,7 +128,7 @@ Then comes Phase 2 (the Docker-based systems plus the DuckDB `geography` extensi
 * Longitudes in 0–360 (dropped)
 * Reading geometry back from the library to detect silent splitting or normalization
 * Custom or user-drawn polygons, and the runtime backend they need
-* AWS deployment (S3 + CloudFront for the static site; cost controls for any backend)
+* AWS deployment (S3 + CloudFront for the static site; cost controls for any backend). Phase 1's static site is on GitHub Pages instead; AWS matters only once there is a backend.
 * NASA CMR spatial library (stretch goal)
 * Conversation transcripts for auditing (asked for in `00`) — Jason is handling this outside these plans.
 

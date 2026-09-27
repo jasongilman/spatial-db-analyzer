@@ -33,7 +33,19 @@ body {
   padding: 0 1.5rem 4rem;
 }
 
-/* ---------- Site header ---------- */
+/* ---------- Site header and footer ---------- */
+
+.site-footer {
+  margin-top: 3rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.site-footer:empty {
+  display: none;
+}
 
 .site-header {
   display: flex;
@@ -160,6 +172,10 @@ pre {
   border-radius: 3px;
   flex: none;
   transform: translateY(1px);
+}
+
+.swatch-ramp {
+  width: 2.4rem;
 }
 
 .legend-text {
@@ -842,4 +858,30 @@ pre.errors {
   .maps {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ---------- Point hover card ---------- */
+
+/* Not focusable and hidden from assistive tech: the side panel is the accessible summary. */
+.point-card {
+  position: absolute;
+  z-index: 2;
+  max-width: 18rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.point-card[hidden] {
+  display: none;
+}
+
+.point-card-title {
+  font-weight: 600;
 }

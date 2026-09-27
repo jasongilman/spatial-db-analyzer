@@ -9,14 +9,21 @@
 import { select } from "d3-selection";
 import type { BaseType, Selection } from "d3-selection";
 
-import { findResult, findVariant, formatArea, formatBBox, formatErrorPct } from "./data";
+import {
+  findResult,
+  findVariant,
+  formatArea,
+  formatBBox,
+  formatErrorPct,
+  formatLonLat,
+} from "./data";
 import type { Dataset } from "./data";
 import { bboxOutline, ringCentroid, ringsOf, toD3Geometry, toDrawableSubmitted } from "./geo";
 import type { D3Lines, Position } from "./geo";
-import type { BBox } from "./generated/results";
+import type { BBox, CombinationResult } from "./generated/results";
 import { appendHelp, layerHelp } from "./help";
 import { MapView } from "./map";
-import type { ClassifiedPoints, LayerId, Scene } from "./map";
+import type { ClassifiedPoints, LayerId, PointHit, Scene } from "./map";
 import { LAYER_IDS, POINT_CLASS_ORDER } from "./map";
 import {
   GEOMETRY_COLORS,
@@ -26,7 +33,7 @@ import {
   outcomeHasAnswer,
   outcomeStyle,
 } from "./palette";
-import type { Outcome, PointClass } from "./palette";
+import type { PointClass } from "./palette";
 import { formatRoute } from "./routing";
 import type { ComboRoute } from "./routing";
 import { requireAt } from "./arrays";
@@ -52,6 +59,36 @@ const NO_ANSWER_NOTE =
   "This library never answered for this polygon, so there is nothing of its to show on the " +
   "maps. Turn on the grey reference entries below the maps to see where the points truly lie; " +
   "none of it is a mark for or against the library.";
+
+/**
+ * Whether the library built the polygon but its own validation then failed it.
+ *
+ * Such a combination is rejected, so nothing was scored, but unlike an outright
+ * refusal there is a shape to draw: the one whose validation failed.
+ *
+ * @param result - The combination.
+ * @returns True for a built-but-invalid combination.
+ */
+export function isBuiltButInvalid(result: CombinationResult): boolean {
+  return result.outcome === "rejected" && result.accepted;
+}
+
+/**
+ * The note above the maps when the library never answered.
+ *
+ * @param systemName - The library's display name.
+ * @param result - The combination.
+ * @returns The note text.
+ */
+export function noAnswerNote(systemName: string, result: CombinationResult): string {
+  if (isBuiltButInvalid(result)) {
+    return (
+      `${systemName} built this shape, but its own validation reported it invalid, so its ` +
+      "answers were not scored. The library's view below is what it built."
+    );
+  }
+  return NO_ANSWER_NOTE;
+}
 
 /** The legend lists point classes in reading order, not the maps' drawing order. */
 const LEGEND_POINT_ORDER: PointClass[] = [
@@ -145,15 +182,130 @@ function outlineOrNull(bbox: BBox | null | undefined): D3Lines | null {
 }
 
 /**
+ * Why a library never answered, as a phrase to follow its name.
+ *
+ * @param result - The combination.
+ * @returns "rejected this polygon", or the like.
+ */
+function noAnswerReason(result: CombinationResult): string {
+  if (result.outcome === "error") {
+    return "raised an error";
+  }
+  return isBuiltButInvalid(result) ? "reported this polygon invalid" : "rejected this polygon";
+}
+
+/**
  * The label shown over each map when the library never answered.
  *
  * @param systemName - The library's display name.
- * @param outcome - The combination's outcome.
+ * @param result - The combination.
  * @returns The label text.
  */
-function notMeasuredLabel(systemName: string, outcome: Outcome): string {
-  const what = outcome === "error" ? "raised an error" : "rejected this polygon";
-  return `Not measured — ${systemName} ${what}`;
+export function notMeasuredLabel(systemName: string, result: CombinationResult): string {
+  return `Not measured — ${systemName} ${noAnswerReason(result)}`;
+}
+
+/** The reference control column's system id, set by the runner from `REFERENCE_INFO`. */
+const REFERENCE_SYSTEM_ID = "reference";
+
+/**
+ * What a map's hover card says about one point.
+ *
+ * Two lines: which point it is, then plain sentences saying where the point
+ * really is and whether the library got it right. The library's own answer is
+ * not stored, so it is worked out from the reference and the lists of points
+ * the library got wrong.
+ *
+ * @param dataset - The loaded results.
+ * @param route - Which combination is being shown.
+ * @param points - The classified points, from {@link classifyPoints}.
+ * @param index - The point's index into the grid.
+ * @returns The card's lines, first to last.
+ */
+export function pointCardLines(
+  dataset: Dataset,
+  route: ComboRoute,
+  points: ClassifiedPoints,
+  index: number,
+): string[] {
+  const result = findResult(dataset, route.polygonId, route.systemId, route.variantId);
+  const reference = dataset.referenceByPolygon.get(route.polygonId);
+  const toleranceDeg = dataset.file.grid.edge_tolerance_deg ?? 0.25;
+  const pointClass = requireAt(POINT_CLASS_ORDER, points.classes[index] ?? 0);
+
+  const lon = points.lons[index] ?? Number.NaN;
+  const lat = points.lats[index] ?? Number.NaN;
+  const title = `Point #${String(index)} · ${formatLonLat(lon, lat)}`;
+
+  if (pointClass === "skipped") {
+    // Skipped points are never compared, so the results file keeps no answer for them.
+    return [
+      title,
+      `This point is within ${String(toleranceDeg)}° of the polygon's edge, too close to ` +
+        "score, so the library's answer here is not counted.",
+    ];
+  }
+
+  const inside = reference?.inside_indices.includes(index) ?? false;
+  const where = inside ? "inside" : "outside";
+  const truth = `This point is ${where} the polygon.`;
+
+  // The reference column is the definition of right, so there is nothing to grade.
+  if (route.systemId === REFERENCE_SYSTEM_ID) {
+    return [title, truth];
+  }
+  if (result === undefined) {
+    return [title, `${truth} The library gave no answer.`];
+  }
+  if (!outcomeHasAnswer(result.outcome)) {
+    return [title, `${truth} The library gave no answer: it ${noAnswerReason(result)}.`];
+  }
+  if (pointClass === "falsePositive" || pointClass === "falseNegative") {
+    const said = inside ? "outside" : "inside";
+    return [title, `${truth} The library wrongly marks it as ${said}.`];
+  }
+  return [title, `${truth} The library correctly marks it as ${where}.`];
+}
+
+/**
+ * Show or hide a map's hover card, kept inside the map's frame.
+ *
+ * @param card - The card element.
+ * @param lines - What it says, or null to hide it.
+ * @param hit - Where the point is on the canvas.
+ */
+function placeCard(card: HTMLDivElement, lines: string[] | null, hit: PointHit | null): void {
+  if (lines === null || hit === null) {
+    card.hidden = true;
+    return;
+  }
+  const block = select(card);
+  block.selectAll("*").remove();
+  lines.forEach((line, lineIndex) => {
+    block
+      .append("div")
+      .attr("class", lineIndex === 0 ? "point-card-title" : null)
+      .text(line);
+  });
+  card.hidden = false;
+
+  const frame = card.parentElement;
+  const frameWidth = frame?.clientWidth ?? 0;
+  const frameHeight = frame?.clientHeight ?? 0;
+  const gap = 12;
+  const { offsetWidth: width, offsetHeight: height } = card;
+  // Right of and below the point by default; flipped to the other side where
+  // it would run off the map.
+  let left = hit.x + gap;
+  if (left + width > frameWidth) {
+    left = hit.x - gap - width;
+  }
+  let top = hit.y + gap;
+  if (top + height > frameHeight) {
+    top = hit.y - gap - height;
+  }
+  card.style.left = `${String(Math.max(0, Math.min(left, frameWidth - width)))}px`;
+  card.style.top = `${String(Math.max(0, Math.min(top, frameHeight - height)))}px`;
 }
 
 /**
@@ -229,7 +381,7 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
   container.textContent = "";
   const root = select(container).append("div").attr("class", "detail");
 
-  const style = outcomeStyle(result.outcome);
+  const style = outcomeStyle(result.outcome, result.agreement_pct);
   const header = root.append("header").attr("class", "detail-header");
   header
     .append("a")
@@ -274,10 +426,23 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
 
   const answered = outcomeHasAnswer(result.outcome);
   if (!answered) {
-    maps.append("p").attr("class", "maps-note").text(NO_ANSWER_NOTE);
+    maps.append("p").attr("class", "maps-note").text(noAnswerNote(system.name, result));
   }
 
   const views: MapView[] = [];
+  const cards: HTMLDivElement[] = [];
+  // One hover for both maps: the point under the pointer on either is ringed
+  // on both, and the card shows on the map the pointer is over.
+  const hover = (source: number, hit: PointHit | null): void => {
+    for (const view of views) {
+      view.setHighlight(hit?.index ?? null);
+    }
+    cards.forEach((card, cardIndex) => {
+      const shown = hit !== null && cardIndex === source;
+      placeCard(card, shown ? pointCardLines(dataset, route, points, hit.index) : null, hit);
+    });
+  };
+
   for (const kind of ["orthographic", "equirectangular"] as const) {
     const figure = maps.append("figure").attr("class", `map map-${kind}`);
     figure
@@ -290,10 +455,7 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
     const frame = figure.append("div").attr("class", "map-frame");
     const canvas = frame.append("canvas").node();
     if (!answered) {
-      frame
-        .append("div")
-        .attr("class", "not-measured")
-        .text(notMeasuredLabel(system.name, result.outcome));
+      frame.append("div").attr("class", "not-measured").text(notMeasuredLabel(system.name, result));
     }
     const reset = frame
       .append("button")
@@ -301,8 +463,24 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
       .attr("class", "reset-view")
       .property("hidden", true)
       .text("Reset view");
-    if (canvas !== null) {
-      const view = new MapView(canvas, kind, (moved) => reset.property("hidden", !moved));
+    const card = frame
+      .append("div")
+      .attr("class", "point-card")
+      .attr("aria-hidden", "true")
+      .property("hidden", true)
+      .node();
+    if (canvas !== null && card !== null) {
+      const source = cards.length;
+      cards.push(card);
+      const view = new MapView(
+        canvas,
+        kind,
+        (moved) => reset.property("hidden", !moved),
+        undefined,
+        (hit) => {
+          hover(source, hit);
+        },
+      );
       reset.on("click", () => {
         view.resetView();
       });
@@ -315,6 +493,8 @@ export function renderDetail(container: HTMLElement, dataset: Dataset, route: Co
   // goes whenever the viewer switches a point layer on.
   const overlays = maps.selectAll<HTMLDivElement, unknown>(".not-measured");
   const syncOverlays = (): void => {
+    // A layer just switched off may hold the hovered point.
+    hover(-1, null);
     overlays.style("display", drawsAnyPoints(scene.visible, scene.points.classes) ? "none" : "");
   };
   syncOverlays();
@@ -547,7 +727,7 @@ function renderSiblingLinks<E extends BaseType>(
     }
     const current = column.system.id === route.systemId && column.variant.id === route.variantId;
     const item = list.append("li").attr("class", current ? "current" : null);
-    const style = outcomeStyle(sibling.outcome);
+    const style = outcomeStyle(sibling.outcome, sibling.agreement_pct);
 
     const link = item.append("a").attr(
       "href",

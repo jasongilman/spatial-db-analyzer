@@ -6,10 +6,14 @@ from pathlib import Path
 import pytest
 
 from spatial_db_analyzer.cli import main, parse_region, summary_table
-from spatial_db_analyzer.models import BBox, GridConfig, ResultsFile
-from spatial_db_analyzer.runner import run
+from spatial_db_analyzer.models import BBox, GridConfig, ReferenceResult, ResultsFile
+from spatial_db_analyzer.runner import (
+    _score,  # pyright: ignore[reportPrivateUsage]
+    run,
+)
 from spatial_db_analyzer.systems import ALL_SYSTEMS
-from spatial_db_analyzer.test_polygons import ALL_TEST_POLYGONS
+from spatial_db_analyzer.systems.base import SystemEvaluation
+from spatial_db_analyzer.test_polygons import ALL_TEST_POLYGONS, POLYGONS_BY_ID
 
 SMALL_GRID = 200
 
@@ -201,3 +205,27 @@ def test_the_json_is_compact_enough_to_ship(tmp_path: Path):
 
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 4
+
+
+def test_a_polygon_the_library_built_but_reported_invalid_is_rejected():
+    """Built is not the same as valid: the library's own validation has the last word."""
+    polygon = POLYGONS_BY_ID["normal"]
+    assert polygon.expected_valid
+    evaluation = SystemEvaluation(
+        accepted=True,
+        validation_errors=("Self-intersection[0 0]",),
+        submitted_geometry=polygon.polygon,
+        contains=(True, False),
+        area_m2=1.0,
+        bbox=None,
+    )
+    reference = ReferenceResult(inside_indices=(0,), skipped_indices=(), area_m2=1.0, bbox=None)
+
+    outcome, agreement, false_positives, false_negatives = _score(
+        evaluation, reference, polygon, point_count=2
+    )
+
+    assert outcome == "rejected"
+    assert agreement is None
+    assert false_positives == ()
+    assert false_negatives == ()
