@@ -166,7 +166,7 @@ function renderGreatCircles(section: Section, dataset: Dataset): void {
     projection: "equirectangular",
     center: centerOf(polygon),
     caption:
-      `${polygon.name} on the flat map. Black: the polygon as it really is, a crescent near ` +
+      `The “${polygon.name}” example on the flat map. Black: the polygon as it really is, a crescent near ` +
       `the pole. Green, dashed: the rectangle ${system.name} builds from the same four ` +
       "corners. The orange dots (called inside, actually outside) and pink rings (called " +
       "outside, actually inside) are the points it gets wrong.",
@@ -187,7 +187,7 @@ function renderGreatCircles(section: Section, dataset: Dataset): void {
 function renderPoles(section: Section, dataset: Dataset): void {
   paragraph(
     section.text,
-    "A ring that runs right around the world, like the one in Covers the North Pole, encloses " +
+    "A ring that runs right around the world, like the one in the “Covers the North Pole” example, encloses " +
       "the cap of the Earth above it, pole included. On a globe that is an ordinary shape.",
   );
   paragraph(
@@ -206,7 +206,7 @@ function renderPoles(section: Section, dataset: Dataset): void {
   renderFigure(section.figures, {
     projection: "orthographic",
     center: [0, 90],
-    caption: `${polygon.name} on a globe centered on the pole: a cap.`,
+    caption: `The “${polygon.name}” example on a globe centered on the pole: a cap.`,
     truth,
     layers: ["truth"],
   });
@@ -224,7 +224,7 @@ function renderAntimeridian(section: Section, dataset: Dataset): void {
   paragraph(
     section.text,
     "Longitude jumps from +180 to -180 at the antimeridian, the line down the middle of the " +
-      "Pacific. Crosses the antimeridian is a box from 160°E to 160°W that straddles it: on " +
+      "Pacific. The “Crosses the antimeridian” example is a box from 160°E to 160°W that straddles it: on " +
       "the sphere, its edge from 160 to -160 is a short hop of 40° east.",
   );
   paragraph(
@@ -244,7 +244,7 @@ function renderAntimeridian(section: Section, dataset: Dataset): void {
     projection: "equirectangular",
     center: [0, 0],
     caption:
-      `${polygon.name} on the flat map. Black: the box as it really is, split by the map's ` +
+      `The “${polygon.name}” example on the flat map. Black: the box as it really is, split by the map's ` +
       `edges. Green, dashed: what ${system.name} builds from the same corners, covering the ` +
       "other 320° of longitude.",
     truth: toD3Geometry(polygon.polygon),
@@ -285,7 +285,7 @@ function renderWinding(section: Section, dataset: Dataset): void {
   );
   paragraph(
     section.text,
-    "Contains both poles is wound so that its interior is everything outside a box from " +
+    "The “Contains both poles” example is wound so that its interior is everything outside a box from " +
       `150°W to 80°W${shares === null ? "" : `: ${percent(shares.asWritten)} of the globe`}, ` +
       "both poles included. A library that ignores winding has to guess which side was meant. " +
       "spherely's default guesses the smaller side, which is the box " +

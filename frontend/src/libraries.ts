@@ -309,7 +309,7 @@ function renderDensifyFigure<E extends BaseType, F extends BaseType>(
     .append("p")
     .attr("class", "muted")
     .text(
-      `On ${polygon.name}, densifying at 1° takes the polygon from ${String(data.before)} ` +
+      `On the “${polygon.name}” example, densifying at 1° takes the polygon from ${String(data.before)} ` +
         `vertices to ${String(data.after)}.`,
     );
 
@@ -318,7 +318,7 @@ function renderDensifyFigure<E extends BaseType, F extends BaseType>(
     projection: "equirectangular",
     center: [0, 0],
     caption:
-      `The top edge of ${polygon.name}, from ${String(start[0])}° to ${String(end[0])}° at ` +
+      `The top edge of the “${polygon.name}” example, from ${String(start[0])}° to ${String(end[0])}° at ` +
       `${String(start[1])}°N. Black: the true great-circle arc. Green, dashed: the single ` +
       "straight chord a planar library draws between the two corners. Blue dots: the vertices " +
       "densifying adds, which sit on the arc, joined by the short chords the library draws.",
@@ -361,7 +361,7 @@ function renderAntimeridianFigures<F extends BaseType>(figures: Block<F>, datase
       projection: "equirectangular",
       center: [0, 0],
       caption:
-        `Before: ${polygon.name} as ${system.name} reads the raw ring (green, dashed), ` +
+        `Before: the “${polygon.name}” example as ${system.name} reads the raw ring (green, dashed), ` +
         "against the true box (black).",
       truth: toD3Geometry(polygon.polygon),
       submitted: toDrawableSubmitted(raw.submitted_geometry, system.semantics),
@@ -396,7 +396,7 @@ function renderAntimeridianFigures<F extends BaseType>(figures: Block<F>, datase
       projection: "equirectangular",
       center: [0, 0],
       caption:
-        `The same fix on a polygon that contains a pole: ${pole.name}, after the fix ` +
+        `The same fix on a polygon that contains a pole: the “${pole.name}” example, after the fix ` +
         "(green, dashed). The ring is closed along 90°N, so the cap becomes a band across the " +
         "top of the map. Its edges are still straight, so it takes in slivers just below the " +
         "true cap (black).",
