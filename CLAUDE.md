@@ -15,9 +15,11 @@ The site is live at <https://jasongilman.github.io/spatial-db-analyzer/>.
 then publish `frontend/dist`. CI never regenerates `results.json`; the committed file ships.
 `vite.config.ts` sets `base: "./"` so the build works under the Pages subpath.
 
-`plans/` holds the project's design record. `plans/01-design-decisions.md` overrides
+`plans/` holds the project's design record, numbered in order (`02`–`08` are Phase 1 and its
+follow-ups, each with a status line at the top). `plans/01-design-decisions.md` overrides
 `plans/00-initial-project-description.md` where they disagree; read `01` before changing scope,
-winding conventions or the list of systems.
+winding conventions or the list of systems. Later-phase systems (PostGIS, MongoDB, DuckDB
+`geography`, Elasticsearch) and the parking lot are listed there.
 
 ## Commands
 
@@ -33,10 +35,13 @@ scripts/test.sh --python-only tests/spatial_db_analyzer_tests/test_reference.py:
 (cd frontend && npx vitest run src/geo.test.ts)          # single vitest file
 scripts/generate_results.sh      # rewrite frontend/public/results.json (args forwarded to the CLI)
 scripts/generate_types.sh        # regenerate frontend/src/generated/results.ts from the pydantic models
-(cd frontend && npm run dev)     # site at http://localhost:5173
+scripts/run_frontend.sh          # site at http://localhost:5173 (same as `cd frontend && npm run dev`)
 ```
 
-CLI filters: `--points N`, `--polygons normal,wide`, `--systems shapely`, `--region=W,S,E,N`.
+CLI filters: `--points N`, `--polygons normal,wide`, `--systems shapely`, `--region=W,S,E,N`,
+`--edge-tolerance D`, `--output PATH`. A filtered run overwrites the committed `results.json`
+with only the selected combinations; pass `--output` elsewhere for experiments, and never commit
+a filtered file.
 Write `--region=...` as one argument, because a leading `-` in the value is otherwise read as a
 flag. A region with west > east crosses the antimeridian.
 
@@ -68,9 +73,20 @@ flag. A region with west > east crosses the antimeridian.
   After changing any model, run `scripts/generate_types.sh` and then `scripts/generate_results.sh`.
   Don't edit `frontend/src/generated/results.ts` by hand.
 - **Front end:** vanilla TS, no framework. `main.ts` hash-routes (`routing.ts`) between
-  `summary.ts` (matrix) and `detail.ts` (one combo, `#/combo/{polygon}/{system}/{variant}`).
-  `map.ts` is a canvas renderer shared by both projections. Call `disposeDetail()` before
-  re-rendering.
+  `summary.ts` (matrix, `#/`), `detail.ts` (one combo, `#/combo/{polygon}/{system}/{variant}`),
+  `howItWorks.ts` (`#/how-it-works[/{section}]`) and `libraries.ts`
+  (`#/libraries[/{system}|/fixes/{workaround}]`). Unknown hashes fall back to the summary.
+  `map.ts` is a canvas renderer shared by both projections (orthographic globe, equirectangular);
+  `figures.ts` wraps it for the explanatory pages. Call `disposeDetail()` and `disposeFigures()`
+  before re-rendering. Colors live in `palette.ts` (Okabe-Ito), not CSS, because canvas needs
+  them; layer help text lives in `help.ts`.
+- **Library prose comes from the adapters.** Each `SystemInfo` (notes, limitations, docs_url) and
+  `Variant` (description, tradeoffs) is defined next to its adapter and reaches the site through
+  `results.json`; the front end holds no per-library text. Workaround explanations are the
+  `WorkaroundInfo` constants in `workarounds.py`. Figures on the explanatory pages are drawn from
+  `results.json` too, never hand-drawn. `frontend/src/content.test.ts` reads the committed
+  `results.json`, so after changing adapter prose or geometry, regenerate results before running
+  vitest.
 
 ## Gotchas
 
