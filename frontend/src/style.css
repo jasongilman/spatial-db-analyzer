@@ -125,7 +125,15 @@ pre {
 /* ---------- Summary ---------- */
 
 .intro {
-  max-width: 62ch;
+  max-width: 78ch;
+}
+
+.intro p {
+  text-wrap: pretty;
+}
+
+.intro .nowrap {
+  white-space: nowrap;
 }
 
 .legend-items {
@@ -185,9 +193,22 @@ pre {
 .matrix-wrapper {
   margin-top: 1.5rem;
   overflow-x: auto;
+  /* Scroll shadows: the white covers scroll with the table and hide the edge shadows until the
+     table actually overflows on that side. */
+  background:
+    linear-gradient(to right, #ffffff 30%, rgba(255, 255, 255, 0)) left / 2.5rem 100% no-repeat
+      local,
+    linear-gradient(to left, #ffffff 30%, rgba(255, 255, 255, 0)) right / 2.5rem 100% no-repeat
+      local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)) left / 0.9rem
+      100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)) right / 0.9rem
+      100% no-repeat scroll;
 }
 
 .matrix {
+  /* Fill the page and let columns shrink to their content before the wrapper has to scroll. */
+  width: 100%;
   border-collapse: separate;
   border-spacing: 3px;
   font-size: 0.85rem;
@@ -200,12 +221,12 @@ pre {
 }
 
 .matrix .corner {
-  min-width: 11rem;
+  min-width: 9rem;
 }
 
 .column-head {
   display: table-cell;
-  max-width: 8.5rem;
+  max-width: 8rem;
   padding: 0 0.25rem 0.4rem;
   font-size: 0.75rem;
   line-height: 1.25;
@@ -259,7 +280,7 @@ pre {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-width: 7rem;
+  min-width: 5.5rem;
   min-height: 3.1rem;
   padding: 0.35rem 0.5rem;
   border-radius: 4px;

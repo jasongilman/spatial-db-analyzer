@@ -55,11 +55,12 @@ function renderIntro<E extends BaseType>(intro: Block<E>, dataset: Dataset): voi
   lead
     .append("span")
     .text(
-      "Polygons on a sphere have curved edges, can contain a pole, and can cross the 180-degree " +
+      "Polygons on a sphere have curved edges, can contain a pole, and can cross the 180\u2011degree " +
         "line; each cell below shows how one library handles one such polygon. ",
     );
   lead
     .append("a")
+    .attr("class", "nowrap")
     .attr("href", formatRoute({ kind: "how-it-works" }))
     .text("New here? Read how it works →");
 
